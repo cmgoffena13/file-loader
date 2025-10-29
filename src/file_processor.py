@@ -89,7 +89,7 @@ class FileProcessor:
             record = {field_mapping[k]: v for k, v in record.items()}
 
             record["etl_row_hash"] = create_row_hash(record)
-            record["_source_file"] = file_path.name
+            record["source_filename"] = file_path.name
             record["etl_created_at"] = now
 
             yield record

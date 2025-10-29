@@ -72,7 +72,7 @@ def create_tables(database_url: str):
         columns.extend(
             [
                 Column("etl_row_hash", BINARY(32)),
-                Column("_source_file", String),
+                Column("source_filename", String),
                 Column("etl_created_at", SQLDateTime),
             ]
         )
