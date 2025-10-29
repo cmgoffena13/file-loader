@@ -1,0 +1,36 @@
+{
+  "entries": {
+    "item": [
+      {
+        "entry_id": 1001,
+        "account_code": "1000",
+        "account_name": "Cash",
+        "debit_amount": 1000.00,
+        "credit_amount": null,
+        "description": "Initial cash deposit",
+        "transaction_date": "2024-01-15",
+        "reference_number": "DEP001"
+      },
+      {
+        "entry_id": 1002,
+        "account_code": "2000",
+        "account_name": "Accounts Payable",
+        "debit_amount": null,
+        "credit_amount": 500.00,
+        "description": "Invoice payment",
+        "transaction_date": "2024-01-16",
+        "reference_number": "INV001"
+      },
+      {
+        "entry_id": 1003,
+        "account_code": "4000",
+        "account_name": "Sales Revenue",
+        "debit_amount": null,
+        "credit_amount": 250.00,
+        "description": "Product sale",
+        "transaction_date": "2024-01-17",
+        "reference_number": "SALE001"
+      }
+    ]
+  }
+}

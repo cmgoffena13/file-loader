@@ -1,0 +1,19 @@
+[project]
+name = "file-loader"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ijson>=3.4.0.post0",
+    "pendulum>=3.1.0",
+    "pydantic>=2.12.3",
+    "pydantic-extra-types[pendulum]>=2.10.6",
+    "pydantic-settings>=2.11.0",
+    "pyexcel>=0.7.4",
+    "pyexcel-xls>=0.7.1",
+    "pyexcel-xlsx>=0.6.1",
+    "ruff>=0.14.2",
+    "sqlalchemy>=2.0.44",
+    "xxhash>=3.6.0",
+]
