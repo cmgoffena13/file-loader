@@ -9,10 +9,23 @@ class FileLoadLog(BaseModel):
     id: Optional[int] = None
     file_name: str
     started_at: DateTime
+    processing_started_at: Optional[DateTime] = None
+    processing_ended_at: Optional[DateTime] = None
+    processing_success: Optional[bool] = None
+    stage_load_started_at: Optional[DateTime] = None
+    stage_load_ended_at: Optional[DateTime] = None
+    stage_load_success: Optional[bool] = None
+    audit_started_at: Optional[DateTime] = None
+    audit_ended_at: Optional[DateTime] = None
+    audit_success: Optional[bool] = None
+    merge_started_at: Optional[DateTime] = None
+    merge_ended_at: Optional[DateTime] = None
+    merge_success: Optional[bool] = None
+    merge_skipped: Optional[bool] = None
     ended_at: Optional[DateTime] = None
-    records_read: Optional[int] = None
-    records_loaded: Optional[int] = None
+    records_processed: Optional[int] = None
     validation_errors: Optional[int] = None
+    records_loaded: Optional[int] = None
     success: Optional[bool] = None
 
 

@@ -19,7 +19,7 @@ def main():
         results = process_directory()
 
         for result in results:
-            print(result.model_dump())
+            print(result)
 
     except Exception as e:
         # TODO: Setup Notification Alert here

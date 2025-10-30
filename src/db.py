@@ -7,6 +7,7 @@ from typing import Dict, Union, get_args, get_origin
 import xxhash
 from pydantic_extra_types.pendulum_dt import Date, DateTime
 from sqlalchemy import (
+    Boolean,
     Column,
     Index,
     Integer,
@@ -91,14 +92,50 @@ def create_tables(database_url: str):
                 f"Source {source.table_name} has more than 3 grain columns. Inefficient primary key."
             )
         primary_key = PrimaryKeyConstraint(*source.grain)
-        source_filename_index = Index(
-            f"idx_{source.table_name}_source_filename", "source_filename"
-        )
         table = Table(
-            source.table_name, metadata, *columns, primary_key, source_filename_index
+            source.table_name,
+            metadata,
+            *columns,
+            primary_key,
         )
+        # define index separately, bound to table column
+        Index(f"idx_{source.table_name}_source_filename", table.c.source_filename)
         tables.append(table)
 
+    file_load_log = Table(
+        "file_load_log",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("file_name", String, nullable=False),
+        Column("started_at", SQLDateTime, nullable=False),
+        # processing phase
+        Column("processing_started_at", SQLDateTime, nullable=True),
+        Column("processing_ended_at", SQLDateTime, nullable=True),
+        Column("processing_success", Boolean, nullable=True),
+        # stage load phase
+        Column("stage_load_started_at", SQLDateTime, nullable=True),
+        Column("stage_load_ended_at", SQLDateTime, nullable=True),
+        Column("stage_load_success", Boolean, nullable=True),
+        # audit phase
+        Column("audit_started_at", SQLDateTime, nullable=True),
+        Column("audit_ended_at", SQLDateTime, nullable=True),
+        Column("audit_success", Boolean, nullable=True),
+        # merge phase
+        Column("merge_started_at", SQLDateTime, nullable=True),
+        Column("merge_ended_at", SQLDateTime, nullable=True),
+        Column("merge_success", Boolean, nullable=True),
+        Column("merge_skipped", Boolean, nullable=True),
+        # summary
+        Column("ended_at", SQLDateTime, nullable=True),
+        Column("records_processed", Integer, nullable=True),
+        Column("validation_errors", Integer, nullable=True),
+        Column("records_loaded", Integer, nullable=True),
+        Column("success", Boolean, nullable=True),
+    )
+    # index for file_name
+    Index("idx_file_load_log_file_name", file_load_log.c.file_name)
+    tables.append(file_load_log)
+    metadata.drop_all(engine, tables=tables)
     metadata.create_all(engine, tables=tables)
     return engine
 

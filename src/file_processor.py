@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List
 
 import pendulum
-from pydantic import BaseModel, ValidationError
-from sqlalchemy import text
+from pydantic import ValidationError
+from sqlalchemy import MetaData, Table, insert, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.db import (
@@ -19,17 +19,12 @@ from src.db import (
 from src.exceptions import AuditFailedError
 from src.readers.base_reader import BaseReader
 from src.readers.reader_factory import ReaderFactory
+from src.retry import retry
 from src.settings import config
-from src.sources.base import DataSource
+from src.sources.base import DataSource, FileLoadLog
 from src.sources.systems.master import MASTER_REGISTRY
-from src.utils import retry
 
 logger = logging.getLogger(__name__)
-
-
-class FileProcessingResult(BaseModel):
-    file_name: str
-    success: bool
 
 
 class FileProcessor:
@@ -37,9 +32,35 @@ class FileProcessor:
         self.reader_factory = ReaderFactory()
         self.engine = create_tables(config.DATABASE_URL)
         self.Session = sessionmaker[Session](bind=self.engine)
+        self.thread_pool = ThreadPoolExecutor(max_workers=multiprocessing.cpu_count())
+        self._metadata = MetaData()
+        self._file_load_log: Table | None = None
 
-        cpu_count = multiprocessing.cpu_count()
-        self.thread_pool = ThreadPoolExecutor(max_workers=cpu_count)
+    def _get_file_load_log(self) -> Table:
+        if self._file_load_log is None:
+            self._metadata.reflect(bind=self.engine, only=["file_load_log"])
+            self._file_load_log = Table(
+                "file_load_log", self._metadata, autoload_with=self.engine
+            )
+        return self._file_load_log
+
+    @retry()
+    def _log_start(self, file_name: str, started_at) -> int:
+        log = self._get_file_load_log()
+        stmt = insert(log).values(file_name=file_name, started_at=started_at)
+        with self.engine.begin() as conn:
+            res = conn.execute(stmt)
+            return int(res.inserted_primary_key[0])
+
+    @retry()
+    def _log_update(self, log: FileLoadLog) -> None:
+        log_table = self._get_file_load_log()
+        vals = log.model_dump(
+            exclude_unset=True, exclude={"id", "file_name", "started_at"}
+        )
+        stmt = update(log_table).where(log_table.c.id == log.id).values(**vals)
+        with self.engine.begin() as conn:
+            conn.execute(stmt)
 
     def _get_reader(self, file_path: Path) -> BaseReader:
         source = MASTER_REGISTRY.find_source_for_file(file_path.name)
@@ -60,8 +81,9 @@ class FileProcessor:
         return field_mapping
 
     def _process_file(
-        self, file_path: str, archive_path: str, reader: BaseReader
+        self, file_path: str, archive_path: str, reader: BaseReader, log: FileLoadLog
     ) -> Iterator[Dict[str, Any]]:
+        log.processing_started_at = pendulum.now()
         try:
             file_path = Path(file_path)
             archive_path = Path(archive_path)
@@ -78,8 +100,8 @@ class FileProcessor:
             logger.error(f"Failed to copy {file_path.name} to archive: {e}")
             raise
 
-        record_count = 0
-        error_count = 0
+        records_processed = 0
+        validation_errors = 0
 
         field_mapping = self._create_field_mapping(reader)
 
@@ -87,8 +109,8 @@ class FileProcessor:
             try:
                 reader.source.source_model.model_validate(record)
             except ValidationError as e:
-                error_count += 1
-                record_count += 1
+                validation_errors += 1
+                records_processed += 1
                 logger.warning(f"Validation failed for row {i}: {e}")
                 continue
 
@@ -101,11 +123,19 @@ class FileProcessor:
             record["source_filename"] = file_path.name
 
             yield record
-            record_count += 1
+            records_processed += 1
+
+        log.records_processed = records_processed
+        log.validation_errors = validation_errors
+        log.processing_ended_at = pendulum.now()
+        log.processing_success = True
+        return log
 
     @retry()
-    def _load_records(self, records: Iterator[Dict[str, Any]], reader: BaseReader):
-        """Load records into stage table, audit, then merge to target table."""
+    def _load_records(
+        self, records: Iterator[Dict[str, Any]], reader: BaseReader, log: FileLoadLog
+    ) -> FileLoadLog:
+        log.stage_load_started_at = pendulum.now()
         source_filename = reader.file_path.name
         target_table_name = reader.source.table_name
 
@@ -119,35 +149,40 @@ class FileProcessor:
 
         try:
             batch = []
-            total_loaded = 0
+            records_loaded = 0
 
             for record in records:
                 batch.append(record)
 
                 if len(batch) >= batch_size:
                     self._insert_batch(batch, stage_table_name)
-                    total_loaded += len(batch)
+                    records_loaded += len(batch)
                     batch = []
                     logger.info(
-                        f"Loaded {total_loaded} records so far into stage table {stage_table_name} from {source_filename}..."
+                        f"Loaded {records_loaded} records so far into stage table {stage_table_name} from {source_filename}..."
                     )
 
             # Insert remaining records in final batch
             if batch:
                 self._insert_batch(batch, stage_table_name)
-                total_loaded += len(batch)
+                records_loaded += len(batch)
 
             logger.info(
-                f"Successfully loaded {total_loaded} records into stage table {stage_table_name}"
+                f"Successfully loaded {records_loaded} records into stage table {stage_table_name}"
+            )
+            log.stage_load_ended_at = pendulum.now()
+            log.records_loaded = records_loaded
+            log.stage_load_success = True
+
+            log = self._audit_data(
+                stage_table_name, source_filename, reader.source, log
             )
 
-            self._audit_data(stage_table_name, source_filename, reader.source)
-
-            self._merge_stage_to_target(
-                stage_table_name, target_table_name, reader.source, source_filename
+            log = self._merge_stage_to_target(
+                stage_table_name, target_table_name, reader.source, source_filename, log
             )
 
-            return total_loaded
+            return log
 
         finally:
             reader.file_path.unlink()
@@ -190,8 +225,13 @@ class FileProcessor:
 
     @retry()
     def _audit_data(
-        self, stage_table_name: str, source_filename: str, source: DataSource
-    ):
+        self,
+        stage_table_name: str,
+        source_filename: str,
+        source: DataSource,
+        log: FileLoadLog,
+    ) -> FileLoadLog:
+        log.audit_started_at = pendulum.now()
         with self.Session() as session:
             audit_sql = text(source.audit_query.format(table=stage_table_name).strip())
 
@@ -206,9 +246,14 @@ class FileProcessor:
                     failed_audits.append(audit_name)
 
             if failed_audits:
+                log.audit_ended_at = pendulum.now()
+                log.audit_success = False
                 raise AuditFailedError(
                     f"Audit checks failed for file: {source_filename} table: {stage_table_name} audits: {failed_audits}"
                 )
+            log.audit_ended_at = pendulum.now()
+            log.audit_success = True
+            return log
 
     @retry()
     def _merge_stage_to_target(
@@ -217,7 +262,8 @@ class FileProcessor:
         target_table_name: str,
         source: DataSource,
         source_filename: str,
-    ):
+        log: FileLoadLog,
+    ) -> FileLoadLog:
         with self.Session() as session:
             try:
                 # Check if this filename has already been processed
@@ -229,11 +275,13 @@ class FileProcessor:
                 ).scalar()
 
                 if result:
+                    log.merge_skipped = True
                     logger.warning(
                         f"File {source_filename} already processed, skipping merge"
                     )
-                    return
+                    return log
 
+                log.merge_started_at = pendulum.now()
                 columns = [
                     col.name
                     for col in get_table_columns(source, include_timestamps=False)
@@ -268,9 +316,13 @@ class FileProcessor:
 
                 session.execute(merge_sql)
                 session.commit()
+                log.merge_ended_at = pendulum.now()
+                log.merge_success = True
+                log.merge_skipped = False
                 logger.info(
                     f"Successfully performed merge from {stage_table_name} to {target_table_name}"
                 )
+                return log
 
             except Exception as e:
                 session.rollback()
@@ -294,7 +346,7 @@ class FileProcessor:
 
     def process_files_parallel(
         self, file_paths: List[str], archive_path: str
-    ) -> List[FileProcessingResult]:
+    ) -> list[dict]:
         """Process multiple files in parallel using thread pool."""
 
         # Divide files evenly among threads
@@ -332,30 +384,43 @@ class FileProcessor:
                         )
                         continue
 
-                    # Chain iterators to process file and load records (creates a stream)
-                    self._load_records(
-                        self._process_file(file_path, archive_path, reader), reader
+                    log = FileLoadLog(
+                        file_name=Path(file_path).name,
+                        started_at=pendulum.now(),
                     )
+                    log.id = self._log_start(log.file_name, log.started_at)
+                    try:
+                        # Chain iterators, process and load records.
+                        log = self._load_records(
+                            self._process_file(file_path, archive_path, reader, log),
+                            reader,
+                            log,
+                        )
+                        log.success = True
+                    finally:
+                        log.ended_at = pendulum.now()
+                        log.success = False if log.success is None else log.success
+                        self._log_update(log)
 
                     # Append success result to the list after completion if no exception was raised
                     results.append(
-                        FileProcessingResult(
-                            file_name=Path(file_path).name, success=True
-                        )
+                        log.model_dump(include={"id", "file_name", "success"})
                     )
                 except AuditFailedError as e:
                     logger.error(f"Audit failed for {file_path}: {e}")
+                    log.ended_at = pendulum.now()
+                    log.success = False
+                    self._log_update(log)
                     results.append(
-                        FileProcessingResult(
-                            file_name=Path(file_path).name, success=False
-                        )
+                        log.model_dump(include={"id", "file_name", "success"})
                     )
                 except Exception as e:
                     logger.error(f"Failed to process {file_path}: {e}")
+                    log.ended_at = pendulum.now()
+                    log.success = False
+                    self._log_update(log)
                     results.append(
-                        FileProcessingResult(
-                            file_name=Path(file_path).name, success=False
-                        )
+                        log.model_dump(include={"id", "file_name", "success"})
                     )
             return results
 
@@ -369,7 +434,7 @@ class FileProcessor:
         for batch_result in batch_results:
             all_results.extend(batch_result)
 
-        successful = sum(1 for r in all_results if r.success)
+        successful = sum(1 for r in all_results if r.get("success"))
         failed = len(all_results) - successful
 
         logger.info(
