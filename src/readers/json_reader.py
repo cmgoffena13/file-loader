@@ -35,12 +35,30 @@ class JSONReader(BaseReader):
             except StopIteration:
                 raise ValueError(f"No data found in JSON file: {self.file_path}")
 
-            # Handle case where first_obj is a list (from array_path)
+            # If first_obj is a list, validate with the first element and emit all elements
             if isinstance(first_obj, list):
                 if not first_obj:
                     raise ValueError(f"No data found in JSON file: {self.file_path}")
-                first_obj = first_obj[0]
+                flattened_first = self._flatten_dict(first_obj[0])
+                actual_fields = set(flattened_first.keys())
+                self._validate_fields(actual_fields)
 
+                # Yield list elements respecting skip_rows
+                for idx, item in enumerate(first_obj):
+                    if idx < self.skip_rows:
+                        continue
+                    yield self._flatten_dict(item)
+
+                # Continue streaming remaining items; if any are lists, emit all
+                for obj in objects:
+                    if isinstance(obj, list):
+                        for item in obj:
+                            yield self._flatten_dict(item)
+                    else:
+                        yield self._flatten_dict(obj)
+                return
+
+            # first_obj is a dict
             flattened_first = self._flatten_dict(first_obj)
             actual_fields = set(flattened_first.keys())
             self._validate_fields(actual_fields)
@@ -52,11 +70,11 @@ class JSONReader(BaseReader):
             for i, obj in enumerate(objects, start=1):
                 if i < self.skip_rows:
                     continue
-                # Handle case where obj is a list
+                # If stream yields a list, emit all items
                 if isinstance(obj, list):
-                    if not obj:
-                        continue
-                    obj = obj[0]
+                    for item in obj:
+                        yield self._flatten_dict(item)
+                    continue
                 yield self._flatten_dict(obj)
 
     def _flatten_dict(

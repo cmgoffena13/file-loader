@@ -25,5 +25,5 @@ SALES = CSVSource(
     """,
     delimiter=",",
     encoding="utf-8",
-    skip_rows=1,
+    skip_rows=0,
 )

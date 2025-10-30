@@ -105,14 +105,14 @@ class FileProcessor:
 
         field_mapping = self._create_field_mapping(reader)
 
-        for i, record in enumerate(reader, 1):
+        for index, record in enumerate(reader, 1):
             try:
                 reader.source.source_model.model_validate(record)
             except ValidationError as e:
                 validation_errors += 1
                 records_processed += 1
                 logger.warning(
-                    f"Validation failed for row {i} for file {file_path.name}: {e}"
+                    f"Validation failed for row {index} for file {file_path.name}: {e}"
                 )
                 continue
 
@@ -124,8 +124,8 @@ class FileProcessor:
             record["etl_row_hash"] = create_row_hash(record)
             record["source_filename"] = file_path.name
 
-            records_processed += 1
             yield record
+            records_processed += 1
 
         log.records_processed = records_processed
         log.validation_errors = validation_errors
@@ -141,7 +141,6 @@ class FileProcessor:
         source_filename = reader.file_path.name
         target_table_name = reader.source.table_name
 
-        # Create stage table
         stage_table_name = create_stage_table(
             self.engine, reader.source, source_filename
         )
@@ -305,6 +304,28 @@ class FileProcessor:
                 insert_values = ", ".join([f"stage.{col}" for col in columns])
                 insert_values += f", '{now_iso}'"
 
+                # EXISTS is more performant than NOT EXISTS
+                insert_sql = text(f"""
+                SELECT COUNT(*) FROM {stage_table_name} AS stage
+                WHERE EXISTS (
+                    SELECT 1 FROM {target_table_name} AS target
+                    WHERE {join_condition}
+                )""")
+                existing_records = session.execute(insert_sql).scalar()
+                log.target_inserts = log.records_stage_loaded - existing_records
+
+                update_sql = text(f"""
+                SELECT COUNT(*) FROM {stage_table_name} AS stage
+                WHERE EXISTS (
+                    SELECT 1 
+                    FROM {target_table_name} AS target
+                    WHERE {join_condition}
+                    AND stage.etl_row_hash != target.etl_row_hash
+                ) 
+                """)
+                new_updates = session.execute(update_sql).scalar()
+                log.target_updates = new_updates
+
                 merge_sql = text(f"""
                     MERGE INTO {target_table_name} AS target
                     USING {stage_table_name} AS stage
@@ -322,7 +343,7 @@ class FileProcessor:
                 log.merge_success = True
                 log.merge_skipped = False
                 logger.info(
-                    f"Successfully performed merge from {stage_table_name} to {target_table_name}"
+                    f"Successfully performed merge from {stage_table_name} to {target_table_name}: {log.target_inserts} inserts, {log.target_updates} updates"
                 )
                 return log
 
