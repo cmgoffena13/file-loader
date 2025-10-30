@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, Iterator
 
+from src.exceptions import MissingColumnsError
 from src.sources.base import DataSource
 
 
@@ -20,7 +21,7 @@ class BaseReader(ABC):
         missing_fields = expected_fields - actual_fields
 
         if missing_fields:
-            raise ValueError(
+            raise MissingColumnsError(
                 f"Missing required fields in {self.file_path.suffix.upper()} file {self.file_path}: {sorted(missing_fields)}"
             )
 

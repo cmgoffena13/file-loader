@@ -2,6 +2,7 @@ import csv
 from pathlib import Path
 from typing import Any, Dict, Iterator
 
+from src.exceptions import MissingHeaderError
 from src.readers.base_reader import BaseReader
 from src.sources.base import CSVSource
 
@@ -21,13 +22,13 @@ class CSVReader(BaseReader):
 
             # Check if headers exist
             if not reader.fieldnames:
-                raise ValueError(f"No headers found in CSV file: {self.file_path}")
+                raise MissingHeaderError(f"No headers found in CSV file: {self.file_path}")
 
             # Check if headers are just whitespace
             if not any(
                 fieldname and fieldname.strip() for fieldname in reader.fieldnames
             ):
-                raise ValueError(
+                raise MissingHeaderError(
                     f"Whitespace-only headers in CSV file: {self.file_path}"
                 )
 

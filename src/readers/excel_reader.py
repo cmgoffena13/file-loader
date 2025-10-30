@@ -3,6 +3,7 @@ from typing import Any, Dict, Iterator
 
 import pyexcel
 
+from src.exceptions import MissingHeaderError
 from src.readers.base_reader import BaseReader
 from src.sources.base import ExcelSource
 
@@ -26,7 +27,7 @@ class ExcelReader(BaseReader):
             raise ValueError(f"No data found in Excel file: {self.file_path}")
 
         if not any(isinstance(key, str) and key.strip() for key in first_record.keys()):
-            raise ValueError(
+            raise MissingHeaderError(
                 f"Empty or invalid column headers in Excel file: {self.file_path}"
             )
 
