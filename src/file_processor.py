@@ -111,7 +111,9 @@ class FileProcessor:
             except ValidationError as e:
                 validation_errors += 1
                 records_processed += 1
-                logger.warning(f"Validation failed for row {i}: {e}")
+                logger.warning(
+                    f"Validation failed for row {i} for file {file_path.name}: {e}"
+                )
                 continue
 
             # Rename alias keys to column names and trim unneeded columns
@@ -122,8 +124,8 @@ class FileProcessor:
             record["etl_row_hash"] = create_row_hash(record)
             record["source_filename"] = file_path.name
 
-            yield record
             records_processed += 1
+            yield record
 
         log.records_processed = records_processed
         log.validation_errors = validation_errors
@@ -149,29 +151,29 @@ class FileProcessor:
 
         try:
             batch = []
-            records_loaded = 0
+            records_stage_loaded = 0
 
             for record in records:
                 batch.append(record)
 
                 if len(batch) >= batch_size:
                     self._insert_batch(batch, stage_table_name)
-                    records_loaded += len(batch)
+                    records_stage_loaded += len(batch)
                     batch = []
                     logger.info(
-                        f"Loaded {records_loaded} records so far into stage table {stage_table_name} from {source_filename}..."
+                        f"Loaded {records_stage_loaded} records so far into stage table {stage_table_name} from {source_filename}..."
                     )
 
             # Insert remaining records in final batch
             if batch:
                 self._insert_batch(batch, stage_table_name)
-                records_loaded += len(batch)
+                records_stage_loaded += len(batch)
 
             logger.info(
-                f"Successfully loaded {records_loaded} records into stage table {stage_table_name}"
+                f"Successfully loaded {records_stage_loaded} records into stage table {stage_table_name}"
             )
             log.stage_load_ended_at = pendulum.now()
-            log.records_loaded = records_loaded
+            log.records_stage_loaded = records_stage_loaded
             log.stage_load_success = True
 
             log = self._audit_data(

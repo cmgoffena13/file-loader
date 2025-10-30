@@ -129,13 +129,14 @@ def create_tables(database_url: str):
         Column("ended_at", SQLDateTime, nullable=True),
         Column("records_processed", Integer, nullable=True),
         Column("validation_errors", Integer, nullable=True),
-        Column("records_loaded", Integer, nullable=True),
+        Column("records_stage_loaded", Integer, nullable=True),
+        Column("target_inserts", Integer, nullable=True),
+        Column("target_updates", Integer, nullable=True),
         Column("success", Boolean, nullable=True),
     )
-    # index for file_name
     Index("idx_file_load_log_file_name", file_load_log.c.file_name)
     tables.append(file_load_log)
-    metadata.drop_all(engine, tables=tables)
+    # metadata.drop_all(engine, tables=tables)
     metadata.create_all(engine, tables=tables)
     return engine
 

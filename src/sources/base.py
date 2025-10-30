@@ -25,7 +25,9 @@ class FileLoadLog(BaseModel):
     ended_at: Optional[DateTime] = None
     records_processed: Optional[int] = None
     validation_errors: Optional[int] = None
-    records_loaded: Optional[int] = None
+    records_stage_loaded: Optional[int] = None
+    target_inserts: Optional[int] = None
+    target_updates: Optional[int] = None
     success: Optional[bool] = None
 
 
