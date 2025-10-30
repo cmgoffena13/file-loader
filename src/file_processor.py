@@ -142,11 +142,7 @@ class FileProcessor:
             self._audit_data(stage_table_name, source_filename, reader.source)
 
             self._merge_stage_to_target(
-                stage_table_name, target_table_name, reader.source
-            )
-
-            logger.info(
-                f"Successfully performed merged from {stage_table_name} to {target_table_name}"
+                stage_table_name, target_table_name, reader.source, source_filename
             )
 
             return total_loaded
@@ -210,10 +206,18 @@ class FileProcessor:
                 )
 
     def _merge_stage_to_target(
-        self, stage_table_name: str, target_table_name: str, source: DataSource
+        self, stage_table_name: str, target_table_name: str, source: DataSource, source_filename: str
     ):
         with self.Session() as session:
             try:
+                # Check if this filename has already been processed
+                check_sql = text(f"SELECT EXISTS(SELECT 1 FROM {target_table_name} WHERE source_filename = :filename)")
+                result = session.execute(check_sql, {"filename": source_filename}).scalar()
+                
+                if result:
+                    logger.warning(f"File {source_filename} already processed, skipping merge")
+                    return
+
                 columns = [
                     col.name
                     for col in get_table_columns(source, include_timestamps=False)
@@ -249,7 +253,7 @@ class FileProcessor:
                 session.execute(merge_sql)
                 session.commit()
                 logger.info(
-                    f"Merged records from {stage_table_name} to {target_table_name}"
+                    f"Successfully performed merge from {stage_table_name} to {target_table_name}"
                 )
 
             except Exception as e:

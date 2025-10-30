@@ -8,6 +8,7 @@ import xxhash
 from pydantic_extra_types.pendulum_dt import Date, DateTime
 from sqlalchemy import (
     Column,
+    Index,
     Integer,
     LargeBinary,
     MetaData,
@@ -90,7 +91,8 @@ def create_tables(database_url: str):
                 f"Source {source.table_name} has more than 3 grain columns. Inefficient primary key."
             )
         primary_key = PrimaryKeyConstraint(*source.grain)
-        table = Table(source.table_name, metadata, *columns, primary_key)
+        source_filename_index = Index(f"idx_{source.table_name}_source_filename", "source_filename")
+        table = Table(source.table_name, metadata, *columns, primary_key, source_filename_index)
         tables.append(table)
 
     metadata.create_all(engine, tables=tables)
