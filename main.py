@@ -22,7 +22,7 @@ def main():
             print(result)
 
     except Exception as e:
-        # TODO: Setup Notification Alert here
+        # TODO: Setup Notification Alert here, unexpected failure should trigger alert
         print(f"❌ Error: {e}")
 
 

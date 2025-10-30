@@ -304,6 +304,7 @@ class FileProcessor:
                 insert_values = ", ".join([f"stage.{col}" for col in columns])
                 insert_values += f", '{now_iso}'"
 
+                # Get Estimated Target Inserts and Updates
                 # EXISTS is more performant than NOT EXISTS
                 insert_sql = text(f"""
                 SELECT 
@@ -361,7 +362,6 @@ class FileProcessor:
 
     @retry()
     def _drop_stage_table(self, stage_table_name: str):
-        """Drop the stage table after successful merge."""
         with self.Session() as session:
             try:
                 drop_sql = text(f"DROP TABLE IF EXISTS {stage_table_name}")
@@ -371,6 +371,41 @@ class FileProcessor:
             except Exception as e:
                 session.rollback()
                 logger.warning(f"Failed to drop stage table {stage_table_name}: {e}")
+
+    def _process_file_batch(self, batch: List[str], archive_path: str) -> list[dict]:
+        results: list[dict] = []
+        for file_path in batch:
+            try:
+                reader = self._get_reader(Path(file_path))
+                if not reader:
+                    logger.warning(f"No reader found for file: {Path(file_path).name}")
+                    continue
+
+                log = FileLoadLog(
+                    file_name=Path(file_path).name,
+                    started_at=pendulum.now(),
+                )
+                log.id = self._log_start(log.file_name, log.started_at)
+                try:
+                    log = self._load_records(
+                        self._process_file(file_path, archive_path, reader, log),
+                        reader,
+                        log,
+                    )
+                    log.success = True
+                finally:
+                    log.ended_at = pendulum.now()
+                    log.success = False if log.success is None else log.success
+                    self._log_update(log)
+
+                results.append(log.model_dump(include={"id", "file_name", "success"}))
+            except Exception as e:
+                logger.error(f"Failed to process {file_path}: {e}")
+                log.ended_at = pendulum.now()
+                log.success = False
+                self._log_update(log)
+                results.append(log.model_dump(include={"id", "file_name", "success"}))
+        return results
 
     def process_files_parallel(
         self, file_paths: List[str], archive_path: str
@@ -400,61 +435,10 @@ class FileProcessor:
                 file_batches.append(batch)
             start = end
 
-        def process_file_batch(batch: List[str]):
-            results = []
-            for file_path in batch:
-                try:
-                    # Get reader first to pass to iterators
-                    reader = self._get_reader(Path(file_path))
-                    if not reader:
-                        logger.warning(
-                            f"No reader found for file: {Path(file_path).name}"
-                        )
-                        continue
-
-                    log = FileLoadLog(
-                        file_name=Path(file_path).name,
-                        started_at=pendulum.now(),
-                    )
-                    log.id = self._log_start(log.file_name, log.started_at)
-                    try:
-                        # Chain iterators, process and load records.
-                        log = self._load_records(
-                            self._process_file(file_path, archive_path, reader, log),
-                            reader,
-                            log,
-                        )
-                        log.success = True
-                    finally:
-                        log.ended_at = pendulum.now()
-                        log.success = False if log.success is None else log.success
-                        self._log_update(log)
-
-                    # Append success result to the list after completion if no exception was raised
-                    results.append(
-                        log.model_dump(include={"id", "file_name", "success"})
-                    )
-                except AuditFailedError as e:
-                    logger.error(f"Audit failed for {file_path}: {e}")
-                    log.ended_at = pendulum.now()
-                    log.success = False
-                    self._log_update(log)
-                    results.append(
-                        log.model_dump(include={"id", "file_name", "success"})
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to process {file_path}: {e}")
-                    log.ended_at = pendulum.now()
-                    log.success = False
-                    self._log_update(log)
-                    results.append(
-                        log.model_dump(include={"id", "file_name", "success"})
-                    )
-            return results
-
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             batch_futures = [
-                executor.submit(process_file_batch, batch) for batch in file_batches
+                executor.submit(self._process_file_batch, batch, archive_path)
+                for batch in file_batches
             ]
             batch_results = [future.result() for future in batch_futures]
 

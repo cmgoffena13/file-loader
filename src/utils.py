@@ -38,8 +38,4 @@ def process_directory() -> list[dict]:
 
     file_paths = [str(f) for f in files]
 
-    if not file_paths:
-        logger.warning(f"No files found in directory: {directory}")
-        return []
-
     return processor.process_files_parallel(file_paths, config.ARCHIVE_PATH)
