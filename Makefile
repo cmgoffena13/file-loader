@@ -4,7 +4,13 @@ format: lint
 lint:
 	uv run -- ruff check --fix
 
-run: reset
+install:
+	uv sync --frozen --compile-bytecode
+
+test:
+	uv run -- pytest -v
+
+dev: reset
 	docker compose up -d
 	sleep 5
 	uv run python main.py

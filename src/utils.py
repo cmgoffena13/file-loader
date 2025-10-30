@@ -1,9 +1,9 @@
 import logging
 import os
-from pathlib import Path
-from typing import List
 import time
 from functools import wraps
+from pathlib import Path
+from typing import List
 
 from src.file_processor import FileProcessingResult, FileProcessor
 from src.readers.reader_factory import ReaderFactory
@@ -63,5 +63,7 @@ def retry(attempts: int = 3, delay: float = 0.25, backoff: float = 2.0):
                         raise e
                     time.sleep(wait)
                     wait *= backoff
+
         return wrapper
+
     return decorator

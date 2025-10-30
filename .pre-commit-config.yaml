@@ -1,0 +1,27 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: uv run -- ruff check --fix
+        language: system
+        types: [python]
+        pass_filenames: true
+      - id: ruff-format
+        name: ruff-format
+        entry: uv run -- ruff format
+        language: system
+        types: [python]
+        pass_filenames: true
+        
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: uv run -- pytest
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
+        files: ^src/.*\.py$
