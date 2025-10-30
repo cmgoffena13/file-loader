@@ -159,9 +159,14 @@ class FileProcessor:
                     self._insert_batch(batch, stage_table_name)
                     records_stage_loaded += len(batch)
                     batch = []
-                    logger.info(
-                        f"Loaded {records_stage_loaded} records so far into stage table {stage_table_name} from {source_filename}..."
-                    )
+                    # Log progress every 100k records for large files, or every batch for smaller files
+                    if (
+                        records_stage_loaded % 100000 == 0
+                        or records_stage_loaded < 100000
+                    ):
+                        logger.info(
+                            f"Loaded {records_stage_loaded:,} records so far into stage table {stage_table_name} from {source_filename}..."
+                        )
 
             # Insert remaining records in final batch
             if batch:
