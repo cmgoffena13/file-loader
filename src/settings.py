@@ -19,7 +19,9 @@ class GlobalConfig(BaseConfig):
 
 
 class DevConfig(GlobalConfig):
-    DATABASE_URL: Optional[str] = "sqlite:///dev.db"
+    DATABASE_URL: Optional[str] = (
+        "postgresql+psycopg://fileloader:fileloader@localhost:5432/fileloader"
+    )
     DIRECTORY_PATH: Optional[str] = "src/tests/test_data"
     ARCHIVE_PATH: Optional[str] = "src/tests/archive_data"
     LOG_LEVEL: Optional[str] = "DEBUG"

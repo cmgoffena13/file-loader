@@ -35,7 +35,13 @@ class ReaderFactory:
 
         # Extract reader-specific config from source
         reader_kwargs = source.model_dump(
-            exclude={"name", "file_pattern", "source_model", "table_name"}
+            exclude={
+                "file_pattern",
+                "source_model",
+                "table_name",
+                "grain",
+                "audit_query",
+            }
         )
         reader_kwargs.update(kwargs)  # Allow override of any kwargs
 

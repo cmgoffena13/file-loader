@@ -18,6 +18,11 @@ SALES = CSVSource(
     file_pattern="sales_*.csv",
     source_model=Transaction,
     table_name="transactions",
+    grain=["transaction_id"],
+    audit_query="""
+        SELECT CASE WHEN COUNT(transaction_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
+        FROM {table}
+    """,
     delimiter=",",
     encoding="utf-8",
     skip_rows=1,

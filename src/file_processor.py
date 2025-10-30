@@ -10,10 +10,17 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.db import create_row_hash, create_tables
+from src.db import (
+    create_row_hash,
+    create_stage_table,
+    create_tables,
+    get_table_columns,
+)
+from src.exceptions import AuditFailedError
 from src.readers.base_reader import BaseReader
 from src.readers.reader_factory import ReaderFactory
 from src.settings import config
+from src.sources.base import DataSource
 from src.sources.systems.master import MASTER_REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -72,7 +79,6 @@ class FileProcessor:
 
         record_count = 0
         error_count = 0
-        now = pendulum.now().to_iso8601_string()
 
         field_mapping = self._create_field_mapping(reader)
 
@@ -85,44 +91,67 @@ class FileProcessor:
                 logger.warning(f"Validation failed for row {i}: {e}")
                 continue
 
-            # Rename alias keys to column names
-            record = {field_mapping[k]: v for k, v in record.items()}
+            # Rename alias keys to column names and trim unneeded columns
+            record = {
+                field_mapping[k]: v for k, v in record.items() if k in field_mapping
+            }
 
             record["etl_row_hash"] = create_row_hash(record)
             record["source_filename"] = file_path.name
-            record["etl_created_at"] = now
 
             yield record
             record_count += 1
 
     def _load_records(self, records: Iterator[Dict[str, Any]], reader: BaseReader):
-        batch = []
-        total_loaded = 0
-        table_name = reader.source.table_name
+        """Load records into stage table, audit, then merge to target table."""
+        source_filename = reader.file_path.name
+        target_table_name = reader.source.table_name
 
-        for record in records:
-            batch.append(record)
-
-            if len(batch) >= config.BATCH_SIZE:
-                self._insert_batch(batch, table_name)
-                total_loaded += len(batch)
-                batch = []
-                logger.info(
-                    f"Loaded {total_loaded} records so far from {reader.file_path.name}..."
-                )
-
-        # Insert remaining records in final batch
-        if batch:
-            self._insert_batch(batch, table_name)
-            total_loaded += len(batch)
-
-        logger.info(
-            f"Successfully loaded {total_loaded} records into table {table_name} from {reader.file_path.name}"
+        # Create stage table
+        stage_table_name = create_stage_table(
+            self.engine, reader.source, source_filename
         )
 
-        # Delete the original file after successful load (already archived)
-        reader.file_path.unlink()
-        logger.info(f"Deleted {reader.file_path.name} after successful load")
+        try:
+            batch = []
+            total_loaded = 0
+
+            for record in records:
+                batch.append(record)
+
+                if len(batch) >= config.BATCH_SIZE:
+                    self._insert_batch(batch, stage_table_name)
+                    total_loaded += len(batch)
+                    batch = []
+                    logger.info(
+                        f"Loaded {total_loaded} records so far into stage from {source_filename}..."
+                    )
+
+            # Insert remaining records in final batch
+            if batch:
+                self._insert_batch(batch, stage_table_name)
+                total_loaded += len(batch)
+
+            logger.info(
+                f"Successfully loaded {total_loaded} records into stage table {stage_table_name}"
+            )
+
+            self._audit_data(stage_table_name, source_filename, reader.source)
+
+            self._merge_stage_to_target(
+                stage_table_name, target_table_name, reader.source
+            )
+
+            logger.info(
+                f"Successfully performed merged from {stage_table_name} to {target_table_name}"
+            )
+
+            return total_loaded
+
+        finally:
+            reader.file_path.unlink()
+            logger.info(f"Deleted {source_filename} after successful load")
+            self._drop_stage_table(stage_table_name)
 
     def _insert_batch(self, batch: list[Dict[str, Any]], table_name: str):
         columns = list[str](batch[0].keys())
@@ -141,6 +170,89 @@ class FileProcessor:
                 session.rollback()
                 logger.error(f"Failed to insert batch into {table_name}: {e}")
                 raise
+
+    def _audit_data(
+        self, stage_table_name: str, source_filename: str, source: DataSource
+    ):
+        with self.Session() as session:
+            audit_sql = text(source.audit_query.format(table=stage_table_name).strip())
+
+            result = session.execute(audit_sql).fetchone()
+            column_names = list(result._mapping.keys())
+
+            # Check each CASE statement result (1 = success, 0 = failure)
+            failed_audits = []
+            for audit_name in column_names:
+                value = result._mapping[audit_name]
+                if value == 0:
+                    failed_audits.append(audit_name)
+
+            if failed_audits:
+                raise AuditFailedError(
+                    f"Audit checks failed for file: {source_filename} table: {stage_table_name} audits: {failed_audits}"
+                )
+
+    def _merge_stage_to_target(
+        self, stage_table_name: str, target_table_name: str, source: DataSource
+    ):
+        with self.Session() as session:
+            try:
+                columns = [
+                    col.name
+                    for col in get_table_columns(source, include_timestamps=False)
+                ]
+
+                join_condition = " AND ".join(
+                    [f"target.{col} = stage.{col}" for col in source.grain]
+                )
+
+                now_iso = pendulum.now().to_iso8601_string()
+
+                update_columns = [col for col in columns if col not in source.grain]
+                update_set = ", ".join(
+                    [f"{col} = stage.{col}" for col in update_columns]
+                )
+                update_set += f", etl_updated_at = '{now_iso}'"
+
+                insert_columns = ", ".join(columns) + ", etl_created_at"
+                insert_values = ", ".join([f"stage.{col}" for col in columns])
+                insert_values += f", '{now_iso}'"
+
+                merge_sql = text(f"""
+                    MERGE INTO {target_table_name} AS target
+                    USING {stage_table_name} AS stage
+                    ON {join_condition}
+                    WHEN MATCHED THEN
+                        UPDATE SET {update_set}
+                    WHEN NOT MATCHED THEN
+                        INSERT ({insert_columns})
+                        VALUES ({insert_values})
+                """)
+
+                session.execute(merge_sql)
+                session.commit()
+                logger.info(
+                    f"Merged records from {stage_table_name} to {target_table_name}"
+                )
+
+            except Exception as e:
+                session.rollback()
+                logger.error(
+                    f"Failed to merge {stage_table_name} to {target_table_name}: {e}"
+                )
+                raise
+
+    def _drop_stage_table(self, stage_table_name: str):
+        """Drop the stage table after successful merge."""
+        with self.Session() as session:
+            try:
+                drop_sql = text(f"DROP TABLE IF EXISTS {stage_table_name}")
+                session.execute(drop_sql)
+                session.commit()
+                logger.info(f"Dropped stage table: {stage_table_name}")
+            except Exception as e:
+                session.rollback()
+                logger.warning(f"Failed to drop stage table {stage_table_name}: {e}")
 
     def process_files_parallel(
         self, file_paths: List[str], archive_path: str
@@ -191,6 +303,13 @@ class FileProcessor:
                     results.append(
                         FileProcessingResult(
                             file_name=Path(file_path).name, success=True
+                        )
+                    )
+                except AuditFailedError as e:
+                    logger.error(f"Audit failed for {file_path}: {e}")
+                    results.append(
+                        FileProcessingResult(
+                            file_name=Path(file_path).name, success=False
                         )
                     )
                 except Exception as e:

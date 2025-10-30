@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: file-loader-postgres
+    environment:
+      POSTGRES_USER: fileloader
+      POSTGRES_PASSWORD: fileloader
+      POSTGRES_DB: fileloader
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+volumes:
+  postgres_data:
+

@@ -6,7 +6,7 @@ from src.sources.base import JSONSource, TableModel
 
 
 class LedgerEntry(TableModel):
-    entry_id: int
+    entry_id: int  # nested key: "entries.item.Entry.ID"
     account_code: str
     account_name: str
     debit_amount: Optional[float]
@@ -20,6 +20,11 @@ FINANCIAL = JSONSource(
     file_pattern="ledger_*.json",
     source_model=LedgerEntry,
     table_name="ledger_entries",
+    grain=["entry_id"],
+    audit_query="""
+        SELECT CASE WHEN COUNT(entry_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
+        FROM {table}
+    """,
     array_path="entries.item",
     skip_rows=0,
 )

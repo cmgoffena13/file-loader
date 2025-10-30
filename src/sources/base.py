@@ -12,6 +12,8 @@ class DataSource(BaseModel):
     file_pattern: str
     source_model: Type[TableModel]
     table_name: str
+    grain: list[str]
+    audit_query: str
 
     def matches_file(self, file_path: str) -> bool:
         return Path(file_path).match(self.file_pattern)

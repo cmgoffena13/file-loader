@@ -1,14 +1,15 @@
 import logging
+import re
 from decimal import Decimal
-from typing import Any, Dict, Union, get_args, get_origin
+from pathlib import Path
+from typing import Dict, Union, get_args, get_origin
 
 import xxhash
 from pydantic_extra_types.pendulum_dt import Date, DateTime
 from sqlalchemy import (
-    BINARY,
     Column,
-    Float,
     Integer,
+    LargeBinary,
     MetaData,
     Numeric,
     String,
@@ -46,37 +47,43 @@ def _get_column_type(field_type):
     raise ValueError(f"Unsupported field type {field_type}")
 
 
+def get_table_columns(source, include_timestamps: bool = True) -> list[Column]:
+    columns = []
+
+    for field_name, field_info in source.source_model.model_fields.items():
+        field_type = field_info.annotation
+        column_name = field_name
+
+        is_nullable = (
+            not field_info.is_required()
+            or field_info.default is not None
+            or field_info.default_factory is not None
+        )
+
+        sqlalchemy_type = _get_column_type(field_type)
+        columns.append(Column(column_name, sqlalchemy_type, nullable=is_nullable))
+
+    columns.extend(
+        [
+            Column("etl_row_hash", LargeBinary(32), nullable=False),
+            Column("source_filename", String, nullable=False),
+        ]
+    )
+
+    if include_timestamps:
+        columns.append(Column("etl_created_at", SQLDateTime, nullable=False))
+        columns.append(Column("etl_updated_at", SQLDateTime, nullable=True))
+
+    return columns
+
+
 def create_tables(database_url: str):
     engine = create_engine(database_url)
     metadata = MetaData()
     tables = []
 
     for source in MASTER_REGISTRY.sources:
-        columns = []
-
-        for field_name, field_info in source.source_model.model_fields.items():
-            field_type = field_info.annotation
-            column_name = field_name
-
-            # Check if field is nullable (Optional types or has default)
-            is_nullable = (
-                not field_info.is_required()  # Optional fields
-                or field_info.default is not None  # Has default value
-                or field_info.default_factory is not None  # Has default factory
-            )
-
-            sqlalchemy_type = _get_column_type(field_type)
-            columns.append(Column(column_name, sqlalchemy_type, nullable=is_nullable))
-
-        # Add ETL metadata columns
-        columns.extend(
-            [
-                Column("etl_row_hash", BINARY(32)),
-                Column("source_filename", String),
-                Column("etl_created_at", SQLDateTime),
-            ]
-        )
-
+        columns = get_table_columns(source, include_timestamps=True)
         table = Table(source.table_name, metadata, *columns)
         tables.append(table)
 
@@ -91,3 +98,27 @@ def create_row_hash(record: Dict[str, str]) -> bytes:
     sorted_items = sorted(string_items.items())
     data_string = "|".join(v for _, v in sorted_items)
     return xxhash.xxh32(data_string.encode("utf-8")).digest()
+
+
+def sanitize_table_name(filename: str) -> str:
+    name = Path(filename).stem
+    # Replace invalid characters with underscore
+    name = re.sub(r"[^a-zA-Z0-9_]", "_", name)
+    # Ensure it starts with letter
+    if not name[0].isalpha():
+        name = f"t_{name}"
+    return name
+
+
+def create_stage_table(engine, source, source_filename: str) -> str:
+    sanitized_name = sanitize_table_name(source_filename)
+    stage_table_name = f"stage_{sanitized_name}"
+
+    metadata = MetaData()
+    columns = get_table_columns(source, include_timestamps=False)
+
+    stage_table = Table(stage_table_name, metadata, *columns)
+    metadata.create_all(engine, tables=[stage_table])
+    logger.info(f"Created stage table: {stage_table_name}")
+
+    return stage_table_name

@@ -21,6 +21,12 @@ class JSONReader(BaseReader):
         return value
 
     def read(self) -> Iterator[Dict[str, Any]]:
+        """Read JSON file iteratively.
+
+        Note: JSON keys must match the Pydantic model field names or aliases.
+        Flattening preserves JSON key structure (e.g., nested {"Entry": {"ID": 1}}
+        becomes "Entry_ID"), so JSON structure should align with model expectations.
+        """
         with open(self.file_path, "rb") as file:
             objects = ijson.items(file, self.array_path)
 
