@@ -30,7 +30,6 @@ class DevConfig(GlobalConfig):
 
 
 class TestConfig(GlobalConfig):
-    DATABASE_URL: Optional[str] = "sqlite:///test.db"
     DIRECTORY_PATH: Optional[str] = "src/tests/test_data"
     ARCHIVE_PATH: Optional[str] = "src/tests/archive_data"
     BATCH_SIZE: Optional[int] = 100

@@ -12,6 +12,7 @@ from sqlalchemy import (
     LargeBinary,
     MetaData,
     Numeric,
+    PrimaryKeyConstraint,
     String,
     Table,
     create_engine,
@@ -84,7 +85,12 @@ def create_tables(database_url: str):
 
     for source in MASTER_REGISTRY.sources:
         columns = get_table_columns(source, include_timestamps=True)
-        table = Table(source.table_name, metadata, *columns)
+        if len(source.grain) > 3:
+            logger.warning(
+                f"Source {source.table_name} has more than 3 grain columns. Inefficient primary key."
+            )
+        primary_key = PrimaryKeyConstraint(*source.grain)
+        table = Table(source.table_name, metadata, *columns, primary_key)
         tables.append(table)
 
     metadata.create_all(engine, tables=tables)

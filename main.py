@@ -8,6 +8,11 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(message)s",
 )
 
+# Suppress noisy package loggers
+logging.getLogger("pyexcel").setLevel(logging.WARNING)
+logging.getLogger("pyexcel_io").setLevel(logging.WARNING)
+logging.getLogger("pyexcel.internal").setLevel(logging.WARNING)
+
 
 def main():
     try:

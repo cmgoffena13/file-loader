@@ -112,6 +112,9 @@ class FileProcessor:
             self.engine, reader.source, source_filename
         )
 
+        # If not SQL Server, uses configured batch size
+        batch_size = self._calculate_batch_size(reader.source)
+
         try:
             batch = []
             total_loaded = 0
@@ -119,12 +122,12 @@ class FileProcessor:
             for record in records:
                 batch.append(record)
 
-                if len(batch) >= config.BATCH_SIZE:
+                if len(batch) >= batch_size:
                     self._insert_batch(batch, stage_table_name)
                     total_loaded += len(batch)
                     batch = []
                     logger.info(
-                        f"Loaded {total_loaded} records so far into stage from {source_filename}..."
+                        f"Loaded {total_loaded} records so far into stage table {stage_table_name} from {source_filename}..."
                     )
 
             # Insert remaining records in final batch
@@ -152,6 +155,20 @@ class FileProcessor:
             reader.file_path.unlink()
             logger.info(f"Deleted {source_filename} after successful load")
             self._drop_stage_table(stage_table_name)
+
+    def _calculate_batch_size(self, source) -> int:
+        """If SQL Server, calculate batch size based on 1000 values per INSERT limit."""
+        database_url = str(self.engine.url)
+        if "mssql" in database_url.lower() or "sqlserver" in database_url.lower():
+            # SQL Server has 1000 values per INSERT limit
+            max_values = 1000
+            column_count = len(source.source_model.model_fields) + 2  # +2 for ETL metadata columns (etl_row_hash, source_filename)
+            # Calculate max rows: (max_values / columns_per_row) - 1 for safety margin
+            max_rows = (max_values // column_count) - 1
+            return max(1, min(max_rows, config.BATCH_SIZE))
+
+        # For other databases, use configured batch size
+        return config.BATCH_SIZE
 
     def _insert_batch(self, batch: list[Dict[str, Any]], table_name: str):
         columns = list[str](batch[0].keys())
