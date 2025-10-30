@@ -159,7 +159,7 @@ class FileProcessor:
     def _calculate_batch_size(self, source) -> int:
         """If SQL Server, calculate batch size based on 1000 values per INSERT limit."""
         database_url = str(self.engine.url)
-        if "mssql" in database_url.lower() or "sqlserver" in database_url.lower():
+        if "mssql" in database_url.lower():
             # SQL Server has 1000 values per INSERT limit
             max_values = 1000
             column_count = len(source.source_model.model_fields) + 2  # +2 for ETL metadata columns (etl_row_hash, source_filename)
