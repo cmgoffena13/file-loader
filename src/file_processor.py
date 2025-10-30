@@ -306,16 +306,21 @@ class FileProcessor:
 
                 # EXISTS is more performant than NOT EXISTS
                 insert_sql = text(f"""
-                SELECT COUNT(*) FROM {stage_table_name} AS stage
+                SELECT 
+                COUNT(*) 
+                FROM {stage_table_name} AS stage
                 WHERE EXISTS (
-                    SELECT 1 FROM {target_table_name} AS target
+                    SELECT 1 
+                    FROM {target_table_name} AS target
                     WHERE {join_condition}
                 )""")
                 existing_records = session.execute(insert_sql).scalar()
                 log.target_inserts = log.records_stage_loaded - existing_records
 
                 update_sql = text(f"""
-                SELECT COUNT(*) FROM {stage_table_name} AS stage
+                SELECT 
+                COUNT(*) 
+                FROM {stage_table_name} AS stage
                 WHERE EXISTS (
                     SELECT 1 
                     FROM {target_table_name} AS target
