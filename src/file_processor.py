@@ -22,6 +22,7 @@ from src.readers.reader_factory import ReaderFactory
 from src.settings import config
 from src.sources.base import DataSource
 from src.sources.systems.master import MASTER_REGISTRY
+from src.utils import retry
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,7 @@ class FileProcessor:
             yield record
             record_count += 1
 
+    @retry()
     def _load_records(self, records: Iterator[Dict[str, Any]], reader: BaseReader):
         """Load records into stage table, audit, then merge to target table."""
         source_filename = reader.file_path.name
@@ -158,7 +160,9 @@ class FileProcessor:
         if "mssql" in database_url.lower():
             # SQL Server has 1000 values per INSERT limit
             max_values = 1000
-            column_count = len(source.source_model.model_fields) + 2  # +2 for ETL metadata columns (etl_row_hash, source_filename)
+            column_count = (
+                len(source.source_model.model_fields) + 2
+            )  # +2 for ETL metadata columns (etl_row_hash, source_filename)
             # Calculate max rows: (max_values / columns_per_row) - 1 for safety margin
             max_rows = (max_values // column_count) - 1
             return max(1, min(max_rows, config.BATCH_SIZE))
@@ -184,6 +188,7 @@ class FileProcessor:
                 logger.error(f"Failed to insert batch into {table_name}: {e}")
                 raise
 
+    @retry()
     def _audit_data(
         self, stage_table_name: str, source_filename: str, source: DataSource
     ):
@@ -205,17 +210,28 @@ class FileProcessor:
                     f"Audit checks failed for file: {source_filename} table: {stage_table_name} audits: {failed_audits}"
                 )
 
+    @retry()
     def _merge_stage_to_target(
-        self, stage_table_name: str, target_table_name: str, source: DataSource, source_filename: str
+        self,
+        stage_table_name: str,
+        target_table_name: str,
+        source: DataSource,
+        source_filename: str,
     ):
         with self.Session() as session:
             try:
                 # Check if this filename has already been processed
-                check_sql = text(f"SELECT EXISTS(SELECT 1 FROM {target_table_name} WHERE source_filename = :filename)")
-                result = session.execute(check_sql, {"filename": source_filename}).scalar()
-                
+                check_sql = text(
+                    f"SELECT EXISTS(SELECT 1 FROM {target_table_name} WHERE source_filename = :filename)"
+                )
+                result = session.execute(
+                    check_sql, {"filename": source_filename}
+                ).scalar()
+
                 if result:
-                    logger.warning(f"File {source_filename} already processed, skipping merge")
+                    logger.warning(
+                        f"File {source_filename} already processed, skipping merge"
+                    )
                     return
 
                 columns = [
@@ -243,7 +259,7 @@ class FileProcessor:
                     MERGE INTO {target_table_name} AS target
                     USING {stage_table_name} AS stage
                     ON {join_condition}
-                    WHEN MATCHED THEN
+                    WHEN MATCHED AND stage.etl_row_hash != target.etl_row_hash THEN
                         UPDATE SET {update_set}
                     WHEN NOT MATCHED THEN
                         INSERT ({insert_columns})
@@ -263,6 +279,7 @@ class FileProcessor:
                 )
                 raise
 
+    @retry()
     def _drop_stage_table(self, stage_table_name: str):
         """Drop the stage table after successful merge."""
         with self.Session() as session:

@@ -1,7 +1,7 @@
 import logging
 
-from src.readers.utils import process_directory
 from src.settings import config
+from src.utils import process_directory
 
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL.upper()),

@@ -2,6 +2,8 @@ import logging
 import os
 from pathlib import Path
 from typing import List
+import time
+from functools import wraps
 
 from src.file_processor import FileProcessingResult, FileProcessor
 from src.readers.reader_factory import ReaderFactory
@@ -44,3 +46,22 @@ def process_directory() -> List[FileProcessingResult]:
         return []
 
     return processor.process_files_parallel(file_paths, config.ARCHIVE_PATH)
+
+
+def retry(attempts: int = 3, delay: float = 0.25, backoff: float = 2.0):
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            wait = delay
+            for i in range(attempts):
+                try:
+                    return fn(*args, **kwargs)
+                except Exception as e:
+                    logger.warning(f"Attempt {i + 1} failed: {e}")
+                    if i == attempts - 1:
+                        logger.error(f"Max attempts reached: {e}")
+                        raise e
+                    time.sleep(wait)
+                    wait *= backoff
+        return wrapper
+    return decorator

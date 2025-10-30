@@ -22,7 +22,9 @@ class CSVReader(BaseReader):
 
             # Check if headers exist
             if not reader.fieldnames:
-                raise MissingHeaderError(f"No headers found in CSV file: {self.file_path}")
+                raise MissingHeaderError(
+                    f"No headers found in CSV file: {self.file_path}"
+                )
 
             # Check if headers are just whitespace
             if not any(

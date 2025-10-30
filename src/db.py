@@ -91,8 +91,12 @@ def create_tables(database_url: str):
                 f"Source {source.table_name} has more than 3 grain columns. Inefficient primary key."
             )
         primary_key = PrimaryKeyConstraint(*source.grain)
-        source_filename_index = Index(f"idx_{source.table_name}_source_filename", "source_filename")
-        table = Table(source.table_name, metadata, *columns, primary_key, source_filename_index)
+        source_filename_index = Index(
+            f"idx_{source.table_name}_source_filename", "source_filename"
+        )
+        table = Table(
+            source.table_name, metadata, *columns, primary_key, source_filename_index
+        )
         tables.append(table)
 
     metadata.create_all(engine, tables=tables)
@@ -126,6 +130,7 @@ def create_stage_table(engine, source, source_filename: str) -> str:
     columns = get_table_columns(source, include_timestamps=False)
 
     stage_table = Table(stage_table_name, metadata, *columns)
+    metadata.drop_all(engine, tables=[stage_table])
     metadata.create_all(engine, tables=[stage_table])
     logger.info(f"Created stage table: {stage_table_name}")
 

@@ -2,6 +2,18 @@ from pathlib import Path
 from typing import Optional, Type
 
 from pydantic import BaseModel, Field
+from pydantic_extra_types.pendulum_dt import DateTime
+
+
+class FileLoadLog(BaseModel):
+    id: Optional[int] = None
+    file_name: str
+    started_at: DateTime
+    ended_at: Optional[DateTime] = None
+    records_read: Optional[int] = None
+    records_loaded: Optional[int] = None
+    validation_errors: Optional[int] = None
+    success: Optional[bool] = None
 
 
 class TableModel(BaseModel):
