@@ -17,7 +17,7 @@ A Python-based ETL tool for processing CSV, Excel, and JSON files with memory ef
 
 ### Configuration
 
-Set environment variables:
+Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex. DEV_DATABASE_URL):
 
 - `DATABASE_URL`: Database connection string (where to load the files)
 - `DIRECTORY_PATH`: Directory to watch for files
