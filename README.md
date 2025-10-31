@@ -31,19 +31,30 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 
 ## Features
 
+## Scalable
+
 - **Multiple File Formats**: Supports CSV, Excel (`.xlsx`, `.xls`), and JSON files
 - **Memory Efficient**: Uses iterative reading to handle large files without loading everything into memory
-- **Data Validation**: Pydantic model validation for each record
-- **Staging Pattern**: Loads data into stage tables, audits it, then merges to target tables
 - **Parallel Processing**: Processes multiple files concurrently using thread pools
 - **Database Support**: PostgreSQL, MySQL, and SQL Server Compatability
-- **Portable/Flexible**: Dockerized deployment option for containerized execution or native installation using UV. Supports multiple database backends (MySQL, PostgreSQL, SQL Server) for flexible infrastructure requirements 
+- **Portable/Flexible**: Dockerized deployment option for containerized execution or native installation using UV. Supports multiple database backends (MySQL, PostgreSQL, SQL Server) for flexible infrastructure requirements
+
+## Reliable
+
+- **Data Validation**: Pydantic model validation for each record
+- **Write-Audit-Publish Pattern**: Loads data into stage tables, audits it, then merges to target tables
 - **Audit Framework**: Configurable audit queries to ensure data quality
-- **File Management**: Automatic archiving and deletion after successful processing to keep directory clean
 - **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures
 - **Error Isolation**: Errors in one file do not stop processing of other files - each file is processed independently with errors logged to `file_load_log` table
-- **Notifications**: Email notifications to business stakeholders if it is a file-based issue (No Header, Missing Column, Validation Threshold Reached, or Audit Failed). Slack notifications to Data Team if it is an internal processing error to show detailed information for debugging.
+- **Notifications**: Email notifications to business stakeholders if it is a file-based issue (No Header, Missing Column, Validation Threshold Reached, or Audit Failed). Slack notifications to Data Team if it is an internal processing error to show detailed information for debugging
+- **File Management**: Automatic archiving and deletion after successful processing to keep directory clean
+
+## Maintainable
+
+- **Type-Safe Configuration**: Schema-validated configuration using Pydantic models ensures correct setup and prevents configuration errors
 - **Extensible Factory Pattern**: Uses a factory pattern with abstract base classes, making it easy to add new file format readers (e.g., `.txt`, `.parquet`)
+- **Automatic Table Creation**: Database tables are automatically generated from Pydantic model schemas - no manual DDL required
+- **Test Suite**: Comprehensive test coverage with pytest, fixtures, and isolated test configurations
 
 ## Quick Start
 
