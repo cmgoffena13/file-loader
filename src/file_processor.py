@@ -121,7 +121,10 @@ class FileProcessor:
                 )
                 if len(sample_validation_errors) <= 5:
                     record["row_number"] = (
-                        index  # Add Row Number to sample error for debugging
+                        index  # Add Row Number to sample for debugging
+                    )
+                    record["validation_error"] = (
+                        e  # Add Validation Error to sample for debugging
                     )
                     sample_validation_errors.append(record)
                 continue
