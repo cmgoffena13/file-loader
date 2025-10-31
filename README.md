@@ -1,4 +1,4 @@
-# File Loader
+# FileLoader
 
 An ETL framework for processing CSV, Excel, and JSON files with memory efficient processing, validation, staging, auditing, and database loading.
 
