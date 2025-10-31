@@ -42,7 +42,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 ## Reliable
 
 - **Data Validation**: Pydantic model validation for each record
-- **Write-Audit-Publish Pattern**: Writes data into stage tables, audits it, then publishes to target tables
+- **Write-Audit-Publish Pattern**: Writes data into stage tables, audits the staging data, then publishes to target tables
 - **Audit Framework**: Configurable audit queries to ensure data quality
 - **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures
 - **Error Isolation**: Errors in one file do not stop processing of other files - each file is processed independently with errors logged to `file_load_log` table and optional notification firing
