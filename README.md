@@ -61,7 +61,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 
 ## Maintainable
 
-- **Type-Safe Configuration**: Schema-validated configuration using Pydantic models ensures correct setup and prevents configuration errors
+- **Type-Safe Configuration**: Schema-validated file & repo configuration(s) using Pydantic models ensures correct setup and prevents configuration errors
 - **Centralized Registry**: Single source of truth for all data source configurations via MASTER_REGISTRY - all file mappings and processing rules accessible in one place
 - **Extensible Factory Pattern**: Uses a factory pattern with abstract base classes, making it easy to add new file format readers (e.g., `.txt`, `.parquet`)
 - **Automatic Table Creation**: Database tables & indexes are automatically generated from Pydantic model schemas - no manual DDL required
