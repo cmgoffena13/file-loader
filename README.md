@@ -11,6 +11,9 @@ A Python-based ETL tool for processing CSV, Excel, and JSON files with memory ef
   - [Initialization](#initialization)
   - [File Processing Pipeline](#file-processing-pipeline)
   - [Detailed Logging](#detailed-logging)
+- [How to Add a New Source](#how-to-add-a-new-source)
+- [How to Add a New Reader](#how-to-add-a-new-reader)
+
 
 ## Features
 
@@ -101,3 +104,181 @@ The `file_load_log` table automatically tracks detailed metrics for every file p
 - **Overall Status**: Success/failure status for the entire file processing run, start/end timestamps
 
 All metrics are logged automatically throughout the process, providing complete visibility into each stage of the ETL pipeline.
+
+## How to Add a New Source
+
+Adding a new data source involves creating a Pydantic model and source configuration, then registering it in the master registry.
+
+The system will automatically:
+- Create the database table on startup
+- Match files using the `file_pattern`
+- Validate and load data according to your configuration
+
+### Step 1: Create the System Directory (if new system)
+
+Create a new directory under `src/sources/systems/{system_name}/`:
+
+```bash
+mkdir -p src/sources/systems/{system_name}
+```
+
+### Step 2: Create the Source File
+
+Create `{source_file}.py` in the new directory with:
+
+1. **Pydantic Model**: Define your table schema by extending `TableModel`:
+   ```python
+   from src.sources.base import CSVSource, TableModel
+   from pydantic_extra_types.pendulum_dt import Date
+   from pydantic import Field
+   
+   class YourModel(TableModel):
+       field1: str = Field(alias="Column Name")  # Use alias if column names differ
+       field2: int
+       field3: Date
+   ```
+
+2. **Source Configuration**: Create a source instance (CSVSource, ExcelSource, or JSONSource):
+   ```python
+   YOUR_SOURCE = CSVSource(
+       file_pattern="files_*.csv",           # Wildcard pattern to match files
+       source_model=YourModel,                # Pydantic model defined above
+       table_name="your_table",               # Database table name
+       grain=["field1", "field2"],            # Unique key columns (for MERGE)
+       audit_query="""                        # SQL audit query (must return 1=success, 0=failure)
+           SELECT CASE WHEN COUNT(field1) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
+           FROM {table}
+       """,
+       validation_error_threshold=0.05,      # Optional: % errors allowed (default: 0.0)
+       delimiter=",",                         # CSV-specific
+       encoding="utf-8",                      # CSV-specific
+       skip_rows=0,                           # Rows to skip at start
+   )
+   ```
+
+### Step 3: Register the Source
+
+Import and register your source in `src/sources/systems/master.py`:
+
+```python
+from src.sources.systems.{system_name}.{system_name} import YOUR_SOURCE
+
+MASTER_REGISTRY.add_sources([YOUR_SOURCE])
+```
+
+### Required Fields
+
+All sources require:
+- `file_pattern`: Wildcard pattern (e.g., `"sales_*.csv"`) to match file names
+- `source_model`: Pydantic model class extending `TableModel`
+- `table_name`: Database table name where data will be loaded
+- `grain`: List of column names that form the unique key (used for MERGE operations)
+- `audit_query`: SQL query with `{table}` placeholder that returns CASE statements (1=success, 0=failure)
+- `validation_error_threshold`: Float (default: 0.0) - maximum allowed error rate
+
+### Format-Specific Fields
+
+**CSVSource**:
+- `delimiter`: Field delimiter (default: ",")
+- `encoding`: File encoding (default: "utf-8")
+- `skip_rows`: Number of rows to skip (default: 0)
+
+**ExcelSource**:
+- `sheet_name`: Sheet name (optional, uses first sheet if None)
+- `skip_rows`: Number of rows to skip (default: 0)
+
+**JSONSource**:
+- `array_path`: JSONPath to array items (default: "item")
+- `skip_rows`: Number of items to skip (default: 0)
+
+## How to Add a New Reader
+
+Adding support for a new file format (e.g., `.txt`, `.parquet`, `.xml`) involves creating a reader class and a source configuration, then registering it in the factory.
+
+### Step 1: Create the Reader Class
+
+Create a new file `src/readers/{format}_reader.py` extending `BaseReader`:
+
+```python
+from pathlib import Path
+from typing import Any, Dict, Iterator
+
+from src.readers.base_reader import BaseReader
+from src.sources.base import TXTSource  # Your custom source class
+
+
+class TXTReader(BaseReader):
+    def __init__(self, file_path: Path, source: TXTSource, delimiter: str, skip_rows: int):
+        super().__init__(file_path, source)
+        self.delimiter = delimiter  # From Source Config
+        self.skip_rows = skip_rows  # From Source Config
+
+    def read(self) -> Iterator[Dict[str, Any]]:
+        """Read file iteratively, yielding dict records."""
+        # Validate headers/fields using self._validate_fields(actual_fields)
+        # Yield records as dictionaries
+        pass
+
+    @classmethod
+    def matches_source_type(cls, source_type) -> bool:
+        """Return True if source_type matches this reader's source class."""
+        return source_type == TXTSource
+```
+
+### Required Methods
+
+**`__init__`**:
+- Must accept `file_path: Path` and `source: DataSource`
+- Must call `super().__init__(file_path, source)`
+- Accept any reader-specific parameters needed
+
+**`read()`**:
+- Must return `Iterator[Dict[str, Any]]`
+- Should validate fields using `self._validate_fields(actual_fields)` where `actual_fields` is a `set[str]` of field names
+- Should yield records as dictionaries where keys match Pydantic model field names or aliases
+- Should respect `self.skip_rows` if applicable
+
+**`matches_source_type()`**:
+- Classmethod that returns `True` if the source type matches this reader
+- Used by `ReaderFactory` to validate source/reader compatibility
+
+### Step 2: Create Source Configuration
+
+Create a new source class in `src/sources/base.py` extending `DataSource` with reader-specific configuration fields:
+
+```python
+class TXTSource(DataSource):
+    delimiter: str = Field(default="|")
+    skip_rows: int = Field(default=0)
+```
+
+### Step 3: Register the Reader
+
+Add your reader to `src/readers/reader_factory.py`:
+
+1. **Import the reader**:
+   ```python
+   from src.readers.txt_reader import TXTReader
+   ```
+
+2. **Add to `_readers` dictionary**:
+   ```python
+   _readers = {
+       ".csv": CSVReader,
+       ".xlsx": ExcelReader,
+       ".xls": ExcelReader,
+       ".json": JSONReader,
+       ".txt": TXTReader,  # Add your reader
+   }
+   ```
+
+3. **Update `include` set** (if you added new source fields):
+   ```python
+   reader_kwargs = source.model_dump(
+       include={"delimiter", "encoding", "skip_rows", "sheet_name", "array_path", "your_new_field"}
+   )
+   ```
+
+### Step 4: Use the Reader
+
+Once registered, create a source configuration using your new source type and the system will automatically use your reader for matching file extensions.
