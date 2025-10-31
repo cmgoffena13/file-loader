@@ -36,13 +36,17 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - **Multiple File Formats**: Supports CSV, Excel (`.xlsx`, `.xls`), and JSON files
 - **Memory Efficient**: Uses iterative reading to handle large files without loading everything into memory
 - **Parallel Processing**: Processes multiple files concurrently using thread pools
-- **Flexible Database Support**: PostgreSQL, MySQL, and SQL Server Compatability with proper indexing
-- **Portable/Flexible**: Dockerized deployment option for containerized execution or native installation using UV. 
+- **Flexible Database Support**: PostgreSQL, MySQL, and SQL Server Compatability
+- **Proper Indexing**: Table indexing strategy that supports high data volumes
+- **Portable/Flexible**: Dockerized deployment option for containerized execution or native installation using UV
 
 ## Reliable
 
 - **Data Validation**: Pydantic model validation for each record
-- **Write-Audit-Publish Pattern**: Writes data into stage tables, audits the staging data, then publishes to target tables
+- **Write-Audit-Publish Pattern**: 
+  - Writes data into a staging table
+  - Audits the staging data
+  - Publishes to target tables
 - **Audit Framework**: Configurable audit queries to ensure data quality
 - **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures
 - **Error Isolation**: Errors in one file do not stop processing of other files - each file is processed independently with errors logged to `file_load_log` table and optional notification firing
@@ -58,8 +62,9 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 ## Maintainable
 
 - **Type-Safe Configuration**: Schema-validated configuration using Pydantic models ensures correct setup and prevents configuration errors
+- **Centralized Registry**: Single source of truth for all data source configurations via MASTER_REGISTRY - all file mappings and processing rules accessible in one place
 - **Extensible Factory Pattern**: Uses a factory pattern with abstract base classes, making it easy to add new file format readers (e.g., `.txt`, `.parquet`)
-- **Automatic Table Creation**: Database tables are automatically generated from Pydantic model schemas - no manual DDL required
+- **Automatic Table Creation**: Database tables & indexes are automatically generated from Pydantic model schemas - no manual DDL required
 - **Test Suite**: Comprehensive test coverage with pytest, fixtures, and isolated test configurations
 
 ## Quick Start
