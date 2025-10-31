@@ -1,14 +1,22 @@
 class AuditFailedError(Exception):
-    pass
+    @property
+    def error_type(self) -> str:
+        return "Audit Failed"
 
 
 class MissingHeaderError(Exception):
-    pass
+    @property
+    def error_type(self) -> str:
+        return "Missing Header"
 
 
 class MissingColumnsError(Exception):
-    pass
+    @property
+    def error_type(self) -> str:
+        return "Missing Columns"
 
 
 class ValidationThresholdExceededError(Exception):
-    pass
+    @property
+    def error_type(self) -> str:
+        return "Validation Threshold Exceeded"

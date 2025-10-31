@@ -16,6 +16,17 @@ class GlobalConfig(BaseConfig):
     ARCHIVE_PATH: Optional[str] = None
     BATCH_SIZE: Optional[int] = 10000
     LOG_LEVEL: Optional[str] = "INFO"
+    # Email notification settings
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: Optional[int] = 587
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    FROM_EMAIL: Optional[str] = None
+    DATA_TEAM_EMAIL: Optional[str] = None  # Always CC'd on failure notifications
+    # Slack notification settings
+    SLACK_WEBHOOK_URL: Optional[str] = (
+        None  # Slack webhook URL for internal processing errors
+    )
 
 
 class DevConfig(GlobalConfig):

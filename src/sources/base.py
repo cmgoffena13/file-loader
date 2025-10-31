@@ -44,6 +44,9 @@ class DataSource(BaseModel):
     validation_error_threshold: float = Field(
         default=0.0
     )  # Default: 0% (no errors allowed)
+    notification_emails: Optional[list[str]] = Field(
+        default=None
+    )  # List of email addresses to notify on failures
 
     def matches_file(self, file_path: str) -> bool:
         return Path(file_path).match(self.file_pattern)

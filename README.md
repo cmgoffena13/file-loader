@@ -7,12 +7,26 @@ A Python-based ETL tool for processing CSV, Excel, and JSON files with memory ef
 - [Features](#features)
 - [Quick Start](#quick-start)
   - [Configuration](#configuration)
+    - [Email Notifications](#email-notifications-optional)
+    - [Slack Notifications](#slack-notifications-optional)
 - [How It Works](#how-it-works)
   - [Initialization](#initialization)
   - [File Processing Pipeline](#file-processing-pipeline)
+    - [Failure Notifications](#failure-notifications)
   - [Detailed Logging](#detailed-logging)
 - [How to Add a New Source](#how-to-add-a-new-source)
+  - [Step 1: Create the System Directory (if new system)](#step-1-create-the-system-directory-if-new-system)
+  - [Step 2: Create the Source File](#step-2-create-the-source-file)
+  - [Step 3: Register the Source](#step-3-register-the-source)
+  - [Required Fields](#required-fields)
+  - [Optional Fields](#optional-fields)
+  - [Format-Specific Fields](#format-specific-fields)
 - [How to Add a New Reader](#how-to-add-a-new-reader)
+  - [Step 1: Create the Reader Class](#step-1-create-the-reader-class)
+  - [Required Methods](#required-methods)
+  - [Step 2: Create Source Configuration](#step-2-create-source-configuration)
+  - [Step 3: Register the Reader](#step-3-register-the-reader)
+  - [Step 4: Use the Reader](#step-4-use-the-reader)
 
 
 ## Features
@@ -23,10 +37,12 @@ A Python-based ETL tool for processing CSV, Excel, and JSON files with memory ef
 - **Staging Pattern**: Loads data into stage tables, audits it, then merges to target tables
 - **Parallel Processing**: Processes multiple files concurrently using thread pools
 - **Database Support**: PostgreSQL, MySQL, and SQL Server Compatability
+- **Portable/Scalable**: 
 - **Audit Framework**: Configurable audit queries to ensure data quality
 - **File Management**: Automatic archiving and deletion after successful processing to keep directory clean
 - **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures
 - **Error Isolation**: Errors in one file do not stop processing of other files - each file is processed independently with errors logged to `file_load_log` table
+- **Notifications**: Email notifications to business stakeholders if it is a file-based issue (No Header, Missing Column, Validation Threshold Reached, or Audit Failed). Slack notifications to Data Team if it is an internal processing error to show detailed information for debugging.
 - **Extensible Factory Pattern**: Uses a factory pattern with abstract base classes, making it easy to add new file format readers (e.g., `.txt`, `.parquet`)
 
 ## Quick Start
@@ -48,10 +64,22 @@ pre-commit install --install-hooks
 
 Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex. DEV_DATABASE_URL):
 
+**Required:**
 - `DATABASE_URL`: Database connection string (where to load the files)
 - `DIRECTORY_PATH`: Directory to watch for files
 - `ARCHIVE_PATH`: Directory to archive processed files
 - `BATCH_SIZE`: Number of records per batch insert (default: 10000)
+
+### Email Notifications (Optional)
+- `SMTP_HOST`: SMTP server hostname
+- `SMTP_PORT`: SMTP server port (default: 587)
+- `SMTP_USER`: SMTP username for authentication
+- `SMTP_PASSWORD`: SMTP password for authentication
+- `FROM_EMAIL`: Email address to send notifications from
+- `DATA_TEAM_EMAIL`: Data team email address (always CC'd on failure notifications)
+
+### Slack Notifications (Optional)
+- `SLACK_WEBHOOK_URL`: Slack webhook URL for internal processing errors (code-based issues, not file problems)
 
 ## How It Works
 
@@ -92,6 +120,10 @@ The system uses **parallel processing** with threads to handle multiple files co
 14. **MERGE Operation**: Merges staging data into the target table based on grain columns, handling inserts and updates appropriately
 
 15. **Cleanup**: Drops the staging table and deletes the original file from the directory. The archived copy remains for recovery if needed (simply move from archive back to directory to reprocess). If bad data got into the table, then DELETE out of the target table where `source_filename = {file_name}` and then reprocess.
+
+16. **Failure Notifications** {#failure-notifications}: 
+    - **Email**: If `notification_emails` is configured for a source, email notifications are automatically sent to business owners when files fail (validation threshold exceeded, audit failures, missing headers/columns). The data team (configured via `DATA_TEAM_EMAIL`) is always CC'd. Notifications include error details, log_id for reference, and sample validation errors when applicable.
+    - **Slack**: Internal processing errors (code bugs, database connection failures, system exceptions) are automatically sent to Slack if `SLACK_WEBHOOK_URL` is configured. These are separate from file-related issues and include system information.
 
 ### Detailed Logging
 
@@ -175,6 +207,14 @@ All sources require:
 - `grain`: List of column names that form the unique key (used for MERGE operations)
 - `audit_query`: SQL query with `{table}` placeholder that returns CASE statements (1=success, 0=failure)
 - `validation_error_threshold`: Float (default: 0.0) - maximum allowed error rate
+
+### Optional Fields
+
+- `notification_emails`: List of email addresses (e.g., `["owner@company.com", "team@company.com"]`) to notify when files fail. If configured, notifications are sent for:
+  - Validation threshold exceeded (too many validation errors)
+  - Audit failures (data quality checks failed)
+  - General processing errors
+  - The data team (configured via `DATA_TEAM_EMAIL` setting) is always CC'd for visibility
 
 ### Format-Specific Fields
 

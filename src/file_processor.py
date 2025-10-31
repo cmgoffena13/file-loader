@@ -16,10 +16,16 @@ from src.db import (
     create_tables,
     get_table_columns,
 )
-from src.exceptions import AuditFailedError, ValidationThresholdExceededError
+from src.exceptions import (
+    AuditFailedError,
+    MissingColumnsError,
+    MissingHeaderError,
+    ValidationThresholdExceededError,
+)
+from src.notifications import send_failure_notification, send_slack_notification
 from src.readers.base_reader import BaseReader
 from src.readers.reader_factory import ReaderFactory
-from src.retry import retry
+from src.retry import get_error_location, retry
 from src.settings import config
 from src.sources.base import DataSource, FileLoadLog
 from src.sources.systems.master import MASTER_REGISTRY
@@ -148,11 +154,12 @@ class FileProcessor:
             error_rate = validation_errors / records_processed
             threshold = reader.source.validation_error_threshold
             if error_rate > threshold:
-                raise ValidationThresholdExceededError(
+                error_msg = (
                     f"Validation error rate ({error_rate:.2%}) exceeds threshold "
                     f"({threshold:.2%}). "
                     f"Sample errors: {sample_validation_errors}"
                 )
+                raise ValidationThresholdExceededError(error_msg)
 
         log.processing_ended_at = pendulum.now()
         log.processing_success = True
@@ -281,9 +288,8 @@ class FileProcessor:
             if failed_audits:
                 log.audit_ended_at = pendulum.now()
                 log.audit_success = False
-                raise AuditFailedError(
-                    f"Audit checks failed for file: {source_filename} table: {stage_table_name} audits: {failed_audits}"
-                )
+                error_msg = f"Audit checks failed for file: {source_filename} table: {stage_table_name} audits: {failed_audits}"
+                raise AuditFailedError(error_msg)
             log.audit_ended_at = pendulum.now()
             log.audit_success = True
             return log
@@ -437,9 +443,38 @@ class FileProcessor:
                     self._log_update(log)
 
                 results.append(log.model_dump(include={"id", "file_name", "success"}))
+            except (
+                MissingHeaderError,
+                MissingColumnsError,
+                ValidationThresholdExceededError,
+                AuditFailedError,
+            ) as e:
+                logger.error(f"[log_id={log.id}] Failed to process {file_path}: {e}")
+
+                if reader.source.notification_emails:
+                    send_failure_notification(
+                        file_name=Path(file_path).name,
+                        error_type=e.error_type,
+                        error_message=str(e),
+                        log_id=log.id,
+                        recipient_emails=reader.source.notification_emails,
+                    )
+
+                log.ended_at = pendulum.now()
+                log.success = False
+                self._log_update(log)
+                results.append(log.model_dump(include={"id", "file_name", "success"}))
             except Exception as e:
                 log_id = log.id if log else "N/A"
                 logger.error(f"[log_id={log_id}] Failed to process {file_path}: {e}")
+
+                send_slack_notification(
+                    error_message=str(e),
+                    file_name=Path(file_path).name,
+                    log_id=log.id if log else None,
+                    error_location=get_error_location(e),
+                )
+
                 if log:
                     log.ended_at = pendulum.now()
                     log.success = False
