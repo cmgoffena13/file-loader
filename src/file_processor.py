@@ -119,8 +119,11 @@ class FileProcessor:
                 logger.warning(
                     f"[log_id={log.id}] Validation failed for row {index} for file {file_path.name}: {e}"
                 )
-                if len(sample_validation_errors) < 5:
-                    sample_validation_errors.append(e)
+                if len(sample_validation_errors) <= 5:
+                    record["row_number"] = (
+                        index  # Add Row Number to sample error for debugging
+                    )
+                    sample_validation_errors.append(record)
                 continue
 
             # Rename alias keys to column names and trim unneeded columns

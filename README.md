@@ -12,7 +12,8 @@ A Python-based ETL tool for processing CSV, Excel, and JSON files with memory ef
 - **Database Support**: PostgreSQL, MySQL, and SQL Server Compatability
 - **Audit Framework**: Configurable audit queries to ensure data quality
 - **File Management**: Automatic archiving and deletion after successful processing to keep directory clean
-- **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures. 
+- **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures
+- **Error Isolation**: Errors in one file do not stop processing of other files - each file is processed independently with errors logged to `file_load_log` table 
 
 ## Quick Start
 
@@ -33,7 +34,7 @@ Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex
 
 ### File Processing Pipeline
 
-The system uses **parallel processing** with threads to handle multiple files concurrently:
+The system uses **parallel processing** with threads to handle multiple files concurrently. **Each file is processed independently** - errors in one file are logged but do not affect processing of other files:
 
 1. **File Discovery**: Scans the designated directory (`DIRECTORY_PATH`) for supported file types (CSV, Excel, JSON)
 
@@ -41,7 +42,7 @@ The system uses **parallel processing** with threads to handle multiple files co
 
 3. **Pattern Matching**: Uses pattern matching to match file names against source configurations to determine processing rules
 
-4. **Header Validation**: Checks for required headers/fields in the file (CSV/Excel) or validates field presence (JSON)
+4. **Missing Header Detection**: Checks for required headers/fields in the file (CSV/Excel) or validates field presence (JSON). Errors immediately if no header.
 
 5. **Dynamic Column Mapping**: Maps column names using Pydantic field aliases - supports flexible column naming in source files
 
@@ -63,16 +64,16 @@ The system uses **parallel processing** with threads to handle multiple files co
 
 14. **MERGE Operation**: Merges staging data into the target table based on grain columns, handling inserts and updates appropriately
 
-15. **Cleanup**: Drops the staging table and deletes the original file from the directory. The archived copy remains for recovery if needed (simply move from archive back to directory to reprocess). If bad data got in, then DELETE out of the target table where `source_filename = {file_name}` and then reprocess.
+15. **Cleanup**: Drops the staging table and deletes the original file from the directory. The archived copy remains for recovery if needed (simply move from archive back to directory to reprocess). If bad data got into the table, then DELETE out of the target table where `source_filename = {file_name}` and then reprocess.
 
 ### Detailed Logging
 
 The `file_load_log` table automatically tracks detailed metrics for every file processing run:
 
-- **Processing Phase**: Records processed count, validation errors count, timestamps
-- **Staging Phase**: Records loaded into staging table count, timestamps
-- **Audit Phase**: Audit success/failure status, timestamps  
-- **Merge Phase**: Records inserted/updated in target table counts, merge success/skip status, timestamps
-- **Overall Status**: Success/failure status for the entire file processing run, timestamps
+- **Processing Phase**: Records processed count, validation errors count, start/end timestamps
+- **Staging Phase**: Records loaded into staging table count, start/end timestamps
+- **Audit Phase**: Audit success/failure status, start/end timestamps  
+- **Merge Phase**: Records inserted/updated in target table counts, merge success/skip status, start/end timestamps
+- **Overall Status**: Success/failure status for the entire file processing run, start/end timestamps
 
 All metrics are logged automatically throughout the process, providing complete visibility into each stage of the ETL pipeline.
