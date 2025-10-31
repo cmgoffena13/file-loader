@@ -1,6 +1,6 @@
 # File Loader
 
-A Python-based ETL tool for processing CSV, Excel, and JSON files with memory efficient processing, validation, staging, auditing, and database loading.
+An ETL framework for processing CSV, Excel, and JSON files with memory efficient processing, validation, staging, auditing, and database loading.
 
 ## Table of Contents
 
