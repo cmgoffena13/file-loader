@@ -6,6 +6,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 
 - [Features](#features)
 - [Quick Start](#quick-start)
+  - [Setup](#setup)
   - [Configuration](#configuration)
     - [Email Notifications](#email-notifications-optional)
     - [Slack Notifications](#slack-notifications-optional)
@@ -68,6 +69,8 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - **Test Suite**: Comprehensive test coverage with pytest, fixtures, and isolated test configurations
 
 ## Quick Start
+
+### Setup
 
 The project utilizes `uv`
 
