@@ -2,6 +2,16 @@
 
 A Python-based ETL tool for processing CSV, Excel, and JSON files with memory efficient processing, validation, staging, auditing, and database loading.
 
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+  - [Configuration](#configuration)
+- [How It Works](#how-it-works)
+  - [Initialization](#initialization)
+  - [File Processing Pipeline](#file-processing-pipeline)
+  - [Detailed Logging](#detailed-logging)
+
 ## Features
 
 - **Multiple File Formats**: Supports CSV, Excel (`.xlsx`, `.xls`), and JSON files
@@ -13,9 +23,23 @@ A Python-based ETL tool for processing CSV, Excel, and JSON files with memory ef
 - **Audit Framework**: Configurable audit queries to ensure data quality
 - **File Management**: Automatic archiving and deletion after successful processing to keep directory clean
 - **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures
-- **Error Isolation**: Errors in one file do not stop processing of other files - each file is processed independently with errors logged to `file_load_log` table 
+- **Error Isolation**: Errors in one file do not stop processing of other files - each file is processed independently with errors logged to `file_load_log` table
+- **Extensible Factory Pattern**: Uses a factory pattern with abstract base classes, making it easy to add new file format readers (e.g., `.txt`, `.parquet`)
 
 ## Quick Start
+
+The project utilizes `uv`
+
+1. sync the packages using uv or the Make command
+```bash
+uv sync 
+OR
+make install
+```
+2. Install the pre-commit hooks (you might need to run `source .venv/bin/activate` if your uv environment is not being recognized)
+```bash
+pre-commit install --install-hooks
+```
 
 ### Configuration
 
