@@ -487,7 +487,7 @@ class FileProcessor:
                         error_message = (
                             f"The file {file_path_obj.name} has already been processed and has been moved to the duplicates directory.\n\n"
                             f"To reprocess this file:\n"
-                            f"1. Existing records needed removed from the target table where source_filename = '{file_path_obj.name}'\n"
+                            f"1. Existing records need to be removed from the target table where source_filename = '{file_path_obj.name}'\n"
                             f"2. Move the file from the duplicates directory back to the processing directory"
                         )
                         send_failure_notification(
