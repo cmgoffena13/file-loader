@@ -89,15 +89,19 @@ def get_table_columns(source, include_timestamps: bool = True) -> list[Column]:
 
 def create_tables() -> Engine:
     db_config = get_database_config()
-    engine = create_engine(
-        url=db_config["sqlalchemy.url"],
-        echo=db_config["sqlalchemy.echo"],
-        future=db_config["sqlalchemy.future"],
-        connect_args=db_config.get("sqlalchemy.connect_args", {}),
-        pool_size=db_config.get("sqlalchemy.pool_size", 20),
-        max_overflow=db_config.get("sqlalchemy.max_overflow", 10),
-        pool_timeout=db_config.get("sqlalchemy.pool_timeout", 30),
-    )
+    engine_kwargs = {
+        "url": db_config["sqlalchemy.url"],
+        "echo": db_config["sqlalchemy.echo"],
+        "future": db_config["sqlalchemy.future"],
+        "connect_args": db_config.get("sqlalchemy.connect_args", {}),
+        "pool_size": db_config.get("sqlalchemy.pool_size", 20),
+    }
+    if "sqlalchemy.max_overflow" in db_config:
+        engine_kwargs["max_overflow"] = db_config["sqlalchemy.max_overflow"]
+    if "sqlalchemy.pool_timeout" in db_config:
+        engine_kwargs["pool_timeout"] = db_config["sqlalchemy.pool_timeout"]
+
+    engine = create_engine(**engine_kwargs)
 
     metadata = MetaData()
     tables = []

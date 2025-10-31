@@ -85,7 +85,7 @@ def temp_sqlite_db(tmp_path):
 
     engine = None
     try:
-        engine = create_tables(database_url)
+        engine = create_tables()
         yield engine
     finally:
         # Restore original sources
@@ -132,7 +132,8 @@ def temp_sqlite_db(tmp_path):
 
     engine = None
     try:
-        engine = create_tables(database_url)
+        config.DATABASE_URL = database_url
+        engine = create_tables()
         yield engine
     finally:
         # Restore original sources
@@ -250,7 +251,11 @@ def temp_sqlite_db(tmp_path):
 
     engine = None
     try:
-        engine = create_tables(database_url)
+        # Temporarily override DATABASE_URL for this test
+        original_url = config.DATABASE_URL
+        config.DATABASE_URL = database_url
+        engine = create_tables()
+        config.DATABASE_URL = original_url
         yield engine
     finally:
         # Restore original sources
@@ -318,7 +323,11 @@ def temp_sqlite_db(tmp_path):
 
     engine = None
     try:
-        engine = create_tables(database_url)
+        # Temporarily override DATABASE_URL for this test
+        original_url = config.DATABASE_URL
+        config.DATABASE_URL = database_url
+        engine = create_tables()
+        config.DATABASE_URL = original_url
         yield engine
     finally:
         # Restore original sources
@@ -362,7 +371,11 @@ def temp_sqlite_db(tmp_path):
 
     engine = None
     try:
-        engine = create_tables(database_url)
+        # Temporarily override DATABASE_URL for this test
+        original_url = config.DATABASE_URL
+        config.DATABASE_URL = database_url
+        engine = create_tables()
+        config.DATABASE_URL = original_url
         yield engine
     finally:
         # Restore original sources
@@ -413,7 +426,11 @@ def temp_sqlite_db(tmp_path):
 
     engine = None
     try:
-        engine = create_tables(database_url)
+        # Temporarily override DATABASE_URL for this test
+        original_url = config.DATABASE_URL
+        config.DATABASE_URL = database_url
+        engine = create_tables()
+        config.DATABASE_URL = original_url
         yield engine
     finally:
         # Restore original sources
@@ -481,7 +498,11 @@ def temp_sqlite_db(tmp_path):
 
     engine = None
     try:
-        engine = create_tables(database_url)
+        # Temporarily override DATABASE_URL for this test
+        original_url = config.DATABASE_URL
+        config.DATABASE_URL = database_url
+        engine = create_tables()
+        config.DATABASE_URL = original_url
         yield engine
     finally:
         # Restore original sources
@@ -547,7 +568,11 @@ def temp_sqlite_db(tmp_path):
 
     engine = None
     try:
-        engine = create_tables(database_url)
+        # Temporarily override DATABASE_URL for this test
+        original_url = config.DATABASE_URL
+        config.DATABASE_URL = database_url
+        engine = create_tables()
+        config.DATABASE_URL = original_url
         yield engine
     finally:
         # Restore original sources
@@ -598,7 +623,11 @@ def temp_sqlite_db(tmp_path):
 
     engine = None
     try:
-        engine = create_tables(database_url)
+        # Temporarily override DATABASE_URL for this test
+        original_url = config.DATABASE_URL
+        config.DATABASE_URL = database_url
+        engine = create_tables()
+        config.DATABASE_URL = original_url
         yield engine
     finally:
         # Restore original sources
@@ -664,7 +693,11 @@ def temp_sqlite_db(tmp_path):
 
     engine = None
     try:
-        engine = create_tables(database_url)
+        # Temporarily override DATABASE_URL for this test
+        original_url = config.DATABASE_URL
+        config.DATABASE_URL = database_url
+        engine = create_tables()
+        config.DATABASE_URL = original_url
         yield engine
     finally:
         # Restore original sources
@@ -741,7 +774,11 @@ def temp_sqlite_db(tmp_path):
 
     engine = None
     try:
-        engine = create_tables(database_url)
+        # Temporarily override DATABASE_URL for this test
+        original_url = config.DATABASE_URL
+        config.DATABASE_URL = database_url
+        engine = create_tables()
+        config.DATABASE_URL = original_url
         yield engine
     finally:
         # Restore original sources

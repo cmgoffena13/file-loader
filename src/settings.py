@@ -70,17 +70,20 @@ def get_database_config():
     env_state = BaseConfig().ENV_STATE
     db_config = get_config(env_state)
 
+    is_sqlite = db_config.DATABASE_URL.startswith("sqlite")
+
     config_dict = {
         "sqlalchemy.url": db_config.DATABASE_URL,
         "sqlalchemy.echo": True if isinstance(config, DevConfig) else False,
         "sqlalchemy.future": True,
-        "sqlalchemy.pool_size": 20,
-        "sqlalchemy.max_overflow": 10,
-        "sqlalchemy.pool_timeout": 30,
     }
 
-    # Add database-specific connect args
-    if db_config.DATABASE_URL.startswith("sqlite"):
+    if is_sqlite:
         config_dict["sqlalchemy.connect_args"] = {"check_same_thread": False}
+        config_dict["sqlalchemy.pool_size"] = 1
+    else:
+        config_dict["sqlalchemy.pool_size"] = 20
+        config_dict["sqlalchemy.max_overflow"] = 10
+        config_dict["sqlalchemy.pool_timeout"] = 30
 
     return config_dict
