@@ -37,7 +37,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - **Staging Pattern**: Loads data into stage tables, audits it, then merges to target tables
 - **Parallel Processing**: Processes multiple files concurrently using thread pools
 - **Database Support**: PostgreSQL, MySQL, and SQL Server Compatability
-- **Portable/Scalable**: 
+- **Portable/Flexible**: Dockerized deployment option for containerized execution or native installation using UV. Supports multiple database backends (MySQL, PostgreSQL, SQL Server) for flexible infrastructure requirements 
 - **Audit Framework**: Configurable audit queries to ensure data quality
 - **File Management**: Automatic archiving and deletion after successful processing to keep directory clean
 - **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures

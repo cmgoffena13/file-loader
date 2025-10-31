@@ -7,6 +7,7 @@ from typing import Dict, Union, get_args, get_origin
 import xxhash
 from pydantic_extra_types.pendulum_dt import Date, DateTime
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     Index,
@@ -31,6 +32,7 @@ TYPE_MAPPING = {
     str: String,
     int: Integer,
     float: Numeric,
+    bool: Boolean,
     Decimal: Numeric,
     DateTime: SQLDateTime,
     Date: SQLDate,
@@ -71,6 +73,7 @@ def get_table_columns(source, include_timestamps: bool = True) -> list[Column]:
         [
             Column("etl_row_hash", LargeBinary(32), nullable=False),
             Column("source_filename", String, nullable=False),
+            Column("file_load_log_id", BigInteger, nullable=False),
         ]
     )
 

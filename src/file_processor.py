@@ -144,6 +144,7 @@ class FileProcessor:
 
             record["etl_row_hash"] = create_row_hash(record)
             record["source_filename"] = file_path.name
+            record["file_load_log_id"] = log.id
 
             yield record
             records_processed += 1
