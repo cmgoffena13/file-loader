@@ -90,9 +90,10 @@ pre-commit install --install-hooks
 Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex. DEV_DATABASE_URL):
 
 **Required:**
-- `DATABASE_URL`: Database connection string (where to load the files)
-- `DIRECTORY_PATH`: Directory to watch for files
-- `ARCHIVE_PATH`: Directory to archive processed files
+- `DATABASE_URL`: Database connection string (where to load the files) - **Required**
+- `DIRECTORY_PATH`: Directory to watch for files - **Required**
+- `ARCHIVE_PATH`: Directory to archive processed files - **Required**
+- `DUPLICATE_FILES_PATH`: Directory to move duplicate files (files that have already been processed) - **Required**
 - `BATCH_SIZE`: Number of records per batch insert (default: 10000)
 
 ### Email Notifications (Optional)
@@ -104,47 +105,49 @@ Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex
 - `DATA_TEAM_EMAIL`: Data team email address (always CC'd on failure notifications)
 
 ### Slack Notifications (Optional)
-- `SLACK_WEBHOOK_URL`: Slack webhook URL for internal processing errors (code-based issues, not file problems)
+- `SLACK_WEBHOOK_URL`: Slack webhook URL for internal processing errors (code-based issues, not file validation problems)
 
 ## How It Works
 
 ### Initialization
 
-- **Automatic Table Creation**: On startup, automatically creates (IF NOT EXISTS) all target tables and the `file_load_log` table based on source configurations and Pydantic model schemas
+- **Automatic Table Creation**: On startup, automatically creates (IF NOT EXISTS) all target tables, indexes, and the `file_load_log` table based on source configurations and Pydantic model schemas
 
 ### File Processing Pipeline
 
-The system uses **parallel processing** with threads to handle multiple files concurrently. **Each file is processed independently** - errors in one file are logged but do not affect processing of other files:
+The system uses **parallel processing** with threads to handle multiple files concurrently. The file load process is detailed below:
 
 1. **File Discovery**: Scans the designated directory (`DIRECTORY_PATH`) for supported file types (CSV, Excel, JSON)
 
-2. **Archive First**: Immediately copies each file to the archive directory before any processing begins (preserves original for recovery)
+2. **Early Duplicate Detection**: Checks if the file has already been processed by querying target tables. If duplicate detected, moves file to duplicates directory and skips processing (prevents accidental overwrites and directory clutter)
 
-3. **Pattern Matching**: Uses pattern matching to match file names against source configurations to determine processing rules
+3. **Archive First**: Immediately copies the file to the archive directory before any processing begins (preserves original for recovery) - only for non-duplicate files
 
-4. **Missing Header Detection**: Checks for required headers/fields in the file (CSV/Excel) or validates field presence (JSON). Errors immediately if no header.
+4. **Pattern Matching**: Uses pattern matching to match file names against source configurations to determine processing rules
 
-5. **Dynamic Column Mapping**: Maps column names using Pydantic field aliases - supports flexible column naming in source files
+5. **Missing Header Detection**: Checks for required headers/fields in the file (CSV/Excel) or validates field presence (JSON). Errors immediately if no header.
 
-6. **Column Pruning**: Automatically removes unnecessary columns that aren't defined in the source model
+6. **Missing Column Detection**: Errors immediately if any required columns/fields are missing from the file
 
-7. **Missing Column Detection**: Errors immediately if any required columns/fields are missing from the file
+7. **Dynamic Column Mapping**: Maps column names using Pydantic field aliases - supports flexible column naming in source files
 
-8. **Iterative Row Processing**: Processes rows iteratively using generators for memory efficiency - handles large files without loading everything into memory
+8. **Column Pruning**: Automatically removes unnecessary columns that aren't defined in the source model
 
-9. **Record Validation**: Each record is validated against the Pydantic model schema. Records that fail validation are logged but **do not** get inserted into the staging table. A `validation_error_threshold` can be configured per source file - if the error rate (validation_errors / records_processed) exceeds the threshold, processing stops and the file is marked as failed. Default validation_error_threshold is zero.
+9. **Iterative Row Processing**: Processes rows iteratively using generators for memory efficiency - handles large files without loading everything into memory
 
-10. **Staging Table Creation**: Automatically creates a unique staging table (`stage_{filename}`) for each file, enabling parallel processing of multiple files targeting the same destination table
+10. **Record Validation**: Each record is validated against the Pydantic model schema. Records that fail validation are logged but **do not** get inserted into the staging table. A `validation_error_threshold` can be configured per source file - if the error rate (validation_errors / records_processed) exceeds the threshold, processing stops and the file is marked as failed. Default validation_error_threshold is zero.
 
-11. **Chunked Inserts**: Inserts records into the staging table in configurable batches (`BATCH_SIZE`) for memory efficiency
+11. **Staging Table Creation**: Automatically creates a unique staging table (`stage_{filename}`) for each file, enabling parallel processing of multiple files targeting the same destination table
 
-12. **Data Auditing**: Executes configured audit queries on the staging table (e.g., grain uniqueness checks). If any audit fails, the merge step is skipped and the process is marked as failed
+12. **Chunked Inserts**: Inserts records into the staging table in configurable batches (`BATCH_SIZE`) for memory efficiency
 
-13. **Duplicate File Detection**: Checks if a file has already been processed by querying the target table. If found, skips the merge step and logs a warning
+13. **Data Auditing**: Executes configured audit queries on the staging table (e.g., grain uniqueness checks). If any audit fails, the merge step is skipped and the process is marked as failed
 
 14. **MERGE Operation**: Merges staging data into the target table based on grain columns, handling inserts and updates appropriately
 
 15. **Cleanup**: Drops the staging table and deletes the original file from the directory. The archived copy remains for recovery if needed (simply move from archive back to directory to reprocess). If bad data got into the table, then DELETE out of the target table where `source_filename = {file_name}` and then reprocess.
+
+**Note on Duplicate Files**: Files that have already been processed are detected early (step 2) and moved to the `DUPLICATE_FILES_PATH` directory. This prevents directory clutter and accidental data overwrites. To reprocess a duplicate file, first DELETE the existing records from the target table where `source_filename = {file_name}`, then move the file from the duplicates directory back to `DIRECTORY_PATH`.
 
 16. **Failure Notifications** {#failure-notifications}: 
     - **Email**: If `notification_emails` is configured for a source, email notifications are automatically sent to business owners when files fail (validation threshold exceeded, audit failures, missing headers/columns). The data team (configured via `DATA_TEAM_EMAIL`) is always CC'd. Notifications include error details, log_id for reference, and sample validation errors when applicable.

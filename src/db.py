@@ -10,6 +10,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    Engine,
     Index,
     Integer,
     LargeBinary,
@@ -22,7 +23,9 @@ from sqlalchemy import (
 )
 from sqlalchemy import Date as SQLDate
 from sqlalchemy import DateTime as SQLDateTime
+from sqlalchemy.engine import Engine
 
+from src.settings import get_database_config
 from src.sources.base import FileLoadLog
 from src.sources.systems.master import MASTER_REGISTRY
 
@@ -84,8 +87,18 @@ def get_table_columns(source, include_timestamps: bool = True) -> list[Column]:
     return columns
 
 
-def create_tables(database_url: str):
-    engine = create_engine(database_url)
+def create_tables() -> Engine:
+    db_config = get_database_config()
+    engine = create_engine(
+        url=db_config["sqlalchemy.url"],
+        echo=db_config["sqlalchemy.echo"],
+        future=db_config["sqlalchemy.future"],
+        connect_args=db_config.get("sqlalchemy.connect_args", {}),
+        pool_size=db_config.get("sqlalchemy.pool_size", 20),
+        max_overflow=db_config.get("sqlalchemy.max_overflow", 10),
+        pool_timeout=db_config.get("sqlalchemy.pool_timeout", 30),
+    )
+
     metadata = MetaData()
     tables = []
 
@@ -128,7 +141,6 @@ def create_tables(database_url: str):
         Column("merge_started_at", SQLDateTime, nullable=True),
         Column("merge_ended_at", SQLDateTime, nullable=True),
         Column("merge_success", Boolean, nullable=True),
-        Column("merge_skipped", Boolean, nullable=True),
         # summary
         Column("ended_at", SQLDateTime, nullable=True),
         Column("records_processed", Integer, nullable=True),

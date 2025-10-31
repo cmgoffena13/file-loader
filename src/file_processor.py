@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 class FileProcessor:
     def __init__(self):
         self.reader_factory = ReaderFactory()
-        self.engine = create_tables(config.DATABASE_URL)
+        self.engine = create_tables()
         self.Session = sessionmaker[Session](bind=self.engine)
         self.thread_pool = ThreadPoolExecutor(max_workers=multiprocessing.cpu_count())
         self._metadata = MetaData()
@@ -76,6 +76,39 @@ class FileProcessor:
 
         reader = self.reader_factory.create_reader(file_path, source=source)
         return reader
+
+    @retry()
+    def _check_duplicate_file(self, source: DataSource, source_filename: str) -> bool:
+        with self.Session() as session:
+            try:
+                check_sql = text(
+                    f"SELECT EXISTS(SELECT 1 FROM {source.table_name} WHERE source_filename = :filename)"
+                )
+                result = session.execute(
+                    check_sql, {"filename": source_filename}
+                ).scalar()
+                return bool(result)
+            except Exception as e:
+                logger.warning(
+                    f"Error checking for duplicate file {source_filename} in {source.table_name}: {e}"
+                )
+                return False
+
+    def _move_to_duplicates(self, file_path: Path, duplicates_path: Path) -> None:
+        """Move a duplicate file to the duplicates directory."""
+        duplicates_path.mkdir(parents=True, exist_ok=True)
+        destination = duplicates_path / file_path.name
+
+        if destination.exists():
+            timestamp = pendulum.now().format("YYYYMMDD_HHmmss")
+            stem = file_path.stem
+            suffix = file_path.suffix
+            destination = duplicates_path / f"{stem}_{timestamp}{suffix}"
+
+        shutil.move(str(file_path), str(destination))
+        logger.info(
+            f"Moved duplicate file {file_path.name} to duplicates directory: {destination}"
+        )
 
     def _create_field_mapping(self, reader: BaseReader) -> Dict[str, str]:
         field_mapping = {}
@@ -335,21 +368,6 @@ class FileProcessor:
     ) -> FileLoadLog:
         with self.Session() as session:
             try:
-                # Check if this filename has already been processed
-                check_sql = text(
-                    f"SELECT EXISTS(SELECT 1 FROM {target_table_name} WHERE source_filename = :filename)"
-                )
-                result = session.execute(
-                    check_sql, {"filename": source_filename}
-                ).scalar()
-
-                if result:
-                    log.merge_skipped = True
-                    logger.warning(
-                        f"[log_id={log.id}] File {source_filename} already processed, skipping merge"
-                    )
-                    return log
-
                 log.merge_started_at = pendulum.now()
                 columns = [
                     col.name
@@ -415,7 +433,6 @@ class FileProcessor:
                 session.commit()
                 log.merge_ended_at = pendulum.now()
                 log.merge_success = True
-                log.merge_skipped = False
                 logger.info(
                     f"[log_id={log.id}] Successfully performed merge from {stage_table_name} to {target_table_name}: {log.target_inserts} inserts, {log.target_updates} updates"
                 )
@@ -446,17 +463,30 @@ class FileProcessor:
 
     def _process_file_batch(self, batch: List[str], archive_path: str) -> list[dict]:
         results: list[dict] = []
+        duplicates_path = Path(config.DUPLICATE_FILES_PATH)
+
         for file_path in batch:
+            file_path_obj = Path(file_path)
             try:
-                reader = self._get_reader(Path(file_path))
+                reader = self._get_reader(file_path_obj)
                 if not reader:
                     logger.warning(
-                        f"[log_id=N/A] No reader found for file: {Path(file_path).name}"
+                        f"[log_id=N/A] No reader found for file: {file_path_obj.name}"
+                    )
+                    continue
+
+                if self._check_duplicate_file(reader.source, file_path_obj.name):
+                    logger.warning(
+                        f"[log_id=N/A] File {file_path_obj.name} has already been processed - moving to duplicates directory"
+                    )
+                    self._move_to_duplicates(file_path_obj, duplicates_path)
+                    logger.info(
+                        f"[log_id=N/A] Successfully moved duplicate file {file_path_obj.name} to duplicates directory"
                     )
                     continue
 
                 log = FileLoadLog(
-                    file_name=Path(file_path).name,
+                    file_name=file_path_obj.name,
                     started_at=pendulum.now(),
                 )
                 log.id = self._log_start(log.file_name, log.started_at)

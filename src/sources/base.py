@@ -21,7 +21,6 @@ class FileLoadLog(BaseModel):
     merge_started_at: Optional[DateTime] = None
     merge_ended_at: Optional[DateTime] = None
     merge_success: Optional[bool] = None
-    merge_skipped: Optional[bool] = None
     ended_at: Optional[DateTime] = None
     records_processed: Optional[int] = None
     validation_errors: Optional[int] = None

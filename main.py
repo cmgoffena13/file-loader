@@ -13,6 +13,9 @@ logging.getLogger("pyexcel").setLevel(logging.WARNING)
 logging.getLogger("pyexcel_io").setLevel(logging.WARNING)
 logging.getLogger("pyexcel.internal").setLevel(logging.WARNING)
 
+# Prevent SQLAlchemy logger from propagating to root (prevents duplicate query logs)
+logging.getLogger("sqlalchemy.engine").propagate = False
+
 
 def main():
     try:
