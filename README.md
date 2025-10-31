@@ -107,7 +107,7 @@ Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex
 ### Slack Notifications (Optional)
 - `SLACK_WEBHOOK_URL`: Slack webhook URL for internal processing errors (code-based issues, not file validation problems)
 
-### Batch Size
+### Batch Size (Optional)
 - `BATCH_SIZE`: Number of records per batch insert (default: 10000)
 
 ## How It Works
