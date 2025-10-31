@@ -483,6 +483,21 @@ class FileProcessor:
                     logger.info(
                         f"[log_id=N/A] Successfully moved duplicate file {file_path_obj.name} to duplicates directory"
                     )
+                    if reader.source.notification_emails:
+                        error_message = (
+                            f"The file {file_path_obj.name} has already been processed and has been moved to the duplicates directory.\n\n"
+                            f"To reprocess this file:\n"
+                            f"1. Existing records needed removed from the target table where source_filename = '{file_path_obj.name}'\n"
+                            f"2. Move the file from the duplicates directory back to the processing directory"
+                        )
+                        send_failure_notification(
+                            file_name=file_path_obj.name,
+                            error_type="Duplicate File Detected",
+                            error_message=error_message,
+                            log_id=None,
+                            recipient_emails=reader.source.notification_emails,
+                        )
+
                     continue
 
                 log = FileLoadLog(
