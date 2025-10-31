@@ -41,6 +41,7 @@ class ReaderFactory:
                 "table_name",
                 "grain",
                 "audit_query",
+                "validation_error_threshold",
             }
         )
         reader_kwargs.update(kwargs)  # Allow override of any kwargs

@@ -22,6 +22,7 @@ from sqlalchemy import (
 from sqlalchemy import Date as SQLDate
 from sqlalchemy import DateTime as SQLDateTime
 
+from src.sources.base import FileLoadLog
 from src.sources.systems.master import MASTER_REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -159,7 +160,7 @@ def sanitize_table_name(filename: str) -> str:
     return name
 
 
-def create_stage_table(engine, source, source_filename: str) -> str:
+def create_stage_table(engine, source, source_filename: str, log: FileLoadLog) -> str:
     sanitized_name = sanitize_table_name(source_filename)
     stage_table_name = f"stage_{sanitized_name}"
 
@@ -169,6 +170,6 @@ def create_stage_table(engine, source, source_filename: str) -> str:
     stage_table = Table(stage_table_name, metadata, *columns)
     metadata.drop_all(engine, tables=[stage_table])
     metadata.create_all(engine, tables=[stage_table])
-    logger.info(f"Created stage table: {stage_table_name}")
+    logger.info(f"[log_id={log.id}] Created stage table: {stage_table_name}")
 
     return stage_table_name

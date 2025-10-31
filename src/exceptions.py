@@ -8,3 +8,7 @@ class MissingHeaderError(Exception):
 
 class MissingColumnsError(Exception):
     pass
+
+
+class ValidationThresholdExceededError(Exception):
+    pass

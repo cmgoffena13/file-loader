@@ -11,7 +11,8 @@ A Python-based ETL tool for processing CSV, Excel, and JSON files with memory ef
 - **Parallel Processing**: Processes multiple files concurrently using thread pools
 - **Database Support**: PostgreSQL, MySQL, and SQL Server Compatability
 - **Audit Framework**: Configurable audit queries to ensure data quality
-- **File Management**: Automatic archiving and deletion after successful processing
+- **File Management**: Automatic archiving and deletion after successful processing to keep directory clean
+- **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures. 
 
 ## Quick Start
 
@@ -50,7 +51,7 @@ The system uses **parallel processing** with threads to handle multiple files co
 
 8. **Iterative Row Processing**: Processes rows iteratively using generators for memory efficiency - handles large files without loading everything into memory
 
-9. **Record Validation**: Each record is validated against the Pydantic model schema. Records that fail validation are logged but **do not** get inserted into the staging table
+9. **Record Validation**: Each record is validated against the Pydantic model schema. Records that fail validation are logged but **do not** get inserted into the staging table. A `validation_error_threshold` can be configured per source file - if the error rate (validation_errors / records_processed) exceeds the threshold, processing stops and the file is marked as failed. Default validation_error_threshold is zero.
 
 10. **Staging Table Creation**: Automatically creates a unique staging table (`stage_{filename}`) for each file, enabling parallel processing of multiple files targeting the same destination table
 

@@ -41,6 +41,9 @@ class DataSource(BaseModel):
     table_name: str
     grain: list[str]
     audit_query: str
+    validation_error_threshold: float = Field(
+        default=0.0
+    )  # Default: 0% (no errors allowed)
 
     def matches_file(self, file_path: str) -> bool:
         return Path(file_path).match(self.file_pattern)

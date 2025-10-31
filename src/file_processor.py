@@ -16,7 +16,7 @@ from src.db import (
     create_tables,
     get_table_columns,
 )
-from src.exceptions import AuditFailedError
+from src.exceptions import AuditFailedError, ValidationThresholdExceededError
 from src.readers.base_reader import BaseReader
 from src.readers.reader_factory import ReaderFactory
 from src.retry import retry
@@ -95,13 +95,18 @@ class FileProcessor:
         archive_file_path = archive_path / file_path.name
         try:
             shutil.copyfile(file_path, archive_file_path)
-            logger.info(f"Copied {file_path.name} to archive: {archive_file_path}")
+            logger.info(
+                f"[log_id={log.id}] Copied {file_path.name} to archive: {archive_file_path}"
+            )
         except Exception as e:
-            logger.error(f"Failed to copy {file_path.name} to archive: {e}")
+            logger.error(
+                f"[log_id={log.id}] Failed to copy {file_path.name} to archive: {e}"
+            )
             raise
 
         records_processed = 0
         validation_errors = 0
+        sample_validation_errors = []
 
         field_mapping = self._create_field_mapping(reader)
 
@@ -112,8 +117,10 @@ class FileProcessor:
                 validation_errors += 1
                 records_processed += 1
                 logger.warning(
-                    f"Validation failed for row {index} for file {file_path.name}: {e}"
+                    f"[log_id={log.id}] Validation failed for row {index} for file {file_path.name}: {e}"
                 )
+                if len(sample_validation_errors) < 5:
+                    sample_validation_errors.append(e)
                 continue
 
             # Rename alias keys to column names and trim unneeded columns
@@ -129,6 +136,18 @@ class FileProcessor:
 
         log.records_processed = records_processed
         log.validation_errors = validation_errors
+
+        # Check validation error threshold (per file configuration)
+        if records_processed > 0 and validation_errors > 0:
+            error_rate = validation_errors / records_processed
+            threshold = reader.source.validation_error_threshold
+            if error_rate > threshold:
+                raise ValidationThresholdExceededError(
+                    f"Validation error rate ({error_rate:.2%}) exceeds threshold "
+                    f"({threshold:.2%}). "
+                    f"Sample errors: {sample_validation_errors}"
+                )
+
         log.processing_ended_at = pendulum.now()
         log.processing_success = True
         return log
@@ -142,7 +161,7 @@ class FileProcessor:
         target_table_name = reader.source.table_name
 
         stage_table_name = create_stage_table(
-            self.engine, reader.source, source_filename
+            self.engine, reader.source, source_filename, log
         )
 
         # If not SQL Server, uses configured batch size
@@ -165,7 +184,7 @@ class FileProcessor:
                         or records_stage_loaded < 100000
                     ):
                         logger.info(
-                            f"Loaded {records_stage_loaded:,} records so far into stage table {stage_table_name} from {source_filename}..."
+                            f"[log_id={log.id}] Loaded {records_stage_loaded:,} records so far into stage table {stage_table_name} from {source_filename}..."
                         )
 
             # Insert remaining records in final batch
@@ -174,7 +193,7 @@ class FileProcessor:
                 records_stage_loaded += len(batch)
 
             logger.info(
-                f"Successfully loaded {records_stage_loaded} records into stage table {stage_table_name}"
+                f"[log_id={log.id}] Successfully loaded {records_stage_loaded} records into stage table {stage_table_name}"
             )
             log.stage_load_ended_at = pendulum.now()
             log.records_stage_loaded = records_stage_loaded
@@ -192,8 +211,10 @@ class FileProcessor:
 
         finally:
             reader.file_path.unlink()
-            logger.info(f"Deleted {source_filename} after successful load")
-            self._drop_stage_table(stage_table_name)
+            logger.info(
+                f"[log_id={log.id}] Deleted {source_filename} after successful load"
+            )
+            self._drop_stage_table(stage_table_name, log)
 
     def _calculate_batch_size(self, source) -> int:
         """If SQL Server, calculate batch size based on 1000 values per INSERT limit."""
@@ -283,7 +304,7 @@ class FileProcessor:
                 if result:
                     log.merge_skipped = True
                     logger.warning(
-                        f"File {source_filename} already processed, skipping merge"
+                        f"[log_id={log.id}] File {source_filename} already processed, skipping merge"
                     )
                     return log
 
@@ -354,28 +375,32 @@ class FileProcessor:
                 log.merge_success = True
                 log.merge_skipped = False
                 logger.info(
-                    f"Successfully performed merge from {stage_table_name} to {target_table_name}: {log.target_inserts} inserts, {log.target_updates} updates"
+                    f"[log_id={log.id}] Successfully performed merge from {stage_table_name} to {target_table_name}: {log.target_inserts} inserts, {log.target_updates} updates"
                 )
                 return log
 
             except Exception as e:
                 session.rollback()
                 logger.error(
-                    f"Failed to merge {stage_table_name} to {target_table_name}: {e}"
+                    f"[log_id={log.id}] Failed to merge {stage_table_name} to {target_table_name}: {e}"
                 )
                 raise
 
     @retry()
-    def _drop_stage_table(self, stage_table_name: str):
+    def _drop_stage_table(self, stage_table_name: str, log: FileLoadLog):
         with self.Session() as session:
             try:
                 drop_sql = text(f"DROP TABLE IF EXISTS {stage_table_name}")
                 session.execute(drop_sql)
                 session.commit()
-                logger.info(f"Dropped stage table: {stage_table_name}")
+                logger.info(
+                    f"[log_id={log.id}] Dropped stage table: {stage_table_name}"
+                )
             except Exception as e:
                 session.rollback()
-                logger.warning(f"Failed to drop stage table {stage_table_name}: {e}")
+                logger.warning(
+                    f"[log_id={log.id}] Failed to drop stage table {stage_table_name}: {e}"
+                )
 
     def _process_file_batch(self, batch: List[str], archive_path: str) -> list[dict]:
         results: list[dict] = []
@@ -383,7 +408,9 @@ class FileProcessor:
             try:
                 reader = self._get_reader(Path(file_path))
                 if not reader:
-                    logger.warning(f"No reader found for file: {Path(file_path).name}")
+                    logger.warning(
+                        f"[log_id=N/A] No reader found for file: {Path(file_path).name}"
+                    )
                     continue
 
                 log = FileLoadLog(
@@ -405,11 +432,15 @@ class FileProcessor:
 
                 results.append(log.model_dump(include={"id", "file_name", "success"}))
             except Exception as e:
-                logger.error(f"Failed to process {file_path}: {e}")
-                log.ended_at = pendulum.now()
-                log.success = False
-                self._log_update(log)
-                results.append(log.model_dump(include={"id", "file_name", "success"}))
+                log_id = log.id if log else "N/A"
+                logger.error(f"[log_id={log_id}] Failed to process {file_path}: {e}")
+                if log:
+                    log.ended_at = pendulum.now()
+                    log.success = False
+                    self._log_update(log)
+                    results.append(
+                        log.model_dump(include={"id", "file_name", "success"})
+                    )
         return results
 
     def process_files_parallel(
