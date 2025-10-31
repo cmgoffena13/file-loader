@@ -149,7 +149,7 @@ The system uses **parallel processing** with threads to handle multiple files co
 
 **Note on Duplicate Files**: Files that have already been processed are detected early (step 2) and moved to the `DUPLICATE_FILES_PATH` directory. This prevents directory clutter and accidental data overwrites. To reprocess a duplicate file, first DELETE the existing records from the target table where `source_filename = {file_name}`, then move the file from the duplicates directory back to `DIRECTORY_PATH`.
 
-16. **Failure Notifications** {#failure-notifications}: 
+16. **Failure Notifications**: 
     - **Email**: If `notification_emails` is configured for a source, email notifications are automatically sent to business owners when files fail (validation threshold exceeded, audit failures, missing headers/columns). The data team (configured via `DATA_TEAM_EMAIL`) is always CC'd. Notifications include error details, log_id for reference, and sample validation errors when applicable.
     - **Slack**: Internal processing errors (code bugs, database connection failures, system exceptions) are automatically sent to Slack if `SLACK_WEBHOOK_URL` is configured. These are separate from file-related issues and include system information.
 
