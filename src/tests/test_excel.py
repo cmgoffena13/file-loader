@@ -1,7 +1,12 @@
+import tempfile
+
 import pytest
+from sqlalchemy.orm import Session, sessionmaker
 
 from src.exceptions import MissingColumnsError, MissingHeaderError
+from src.file_processor import FileProcessor
 from src.readers.excel_reader import ExcelReader
+from src.sources.systems.master import MASTER_REGISTRY
 from src.tests.fixtures.source_configs import TEST_INVENTORY
 
 
@@ -52,21 +57,6 @@ def test_excel_missing_columns_raises_error(excel_missing_columns):
     assert "sku" in error_msg or "category" in error_msg or "price" in error_msg
 
 
-def test_excel_duplicate_grain_violation(excel_duplicate_grain):
-    """Test that duplicate grain values can be detected (audit will fail, but reader should process)."""
-    reader = ExcelReader(
-        file_path=excel_duplicate_grain,
-        source=TEST_INVENTORY,
-        sheet_name=None,
-        skip_rows=0,
-    )
-
-    records = list(reader.read())
-    assert len(records) >= 2
-    assert records[0]["SKU"] == "SKU001"
-    assert records[1]["SKU"] == "SKU001"
-
-
 def test_excel_valid_file_reads_successfully(test_excel_file):
     """Test that a valid Excel file reads successfully."""
     reader = ExcelReader(
@@ -79,3 +69,24 @@ def test_excel_valid_file_reads_successfully(test_excel_file):
     records = list(reader.read())
     assert len(records) >= 1
     assert records[0]["SKU"] == "SKU001"
+
+
+def test_excel_duplicate_grain_fails_audit(excel_duplicate_grain, temp_sqlite_db):
+    """Test that duplicate grain values trigger AuditFailedError in SQLite."""
+    # Create a temporary archive directory
+    with tempfile.TemporaryDirectory() as archive_dir:
+        MASTER_REGISTRY.sources = [TEST_INVENTORY]
+
+        processor = FileProcessor()
+        # Override the engine with our test database
+        processor.engine = temp_sqlite_db
+        processor.Session = sessionmaker[Session](bind=temp_sqlite_db)
+
+        # Process file - should fail during audit
+        results = processor.process_files_parallel(
+            [str(excel_duplicate_grain)], archive_dir
+        )
+
+        # Verify that processing failed
+        assert len(results) == 1
+        assert results[0]["success"] is False

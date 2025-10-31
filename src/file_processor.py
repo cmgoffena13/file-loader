@@ -3,7 +3,7 @@ import multiprocessing
 import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, Iterator, List
+from typing import Any, Dict, Iterator, List, Optional
 
 import pendulum
 from pydantic import ValidationError
@@ -40,7 +40,7 @@ class FileProcessor:
         self.Session = sessionmaker[Session](bind=self.engine)
         self.thread_pool = ThreadPoolExecutor(max_workers=multiprocessing.cpu_count())
         self._metadata = MetaData()
-        self._file_load_log: Table | None = None
+        self._file_load_log: Optional[Table] = None
 
     def _get_file_load_log(self) -> Table:
         if self._file_load_log is None:

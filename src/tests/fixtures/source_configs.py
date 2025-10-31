@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import Field
 from pydantic_extra_types.pendulum_dt import Date, DateTime
 
@@ -58,8 +60,8 @@ class TestLedgerEntry(TableModel):
     entry_id: int
     account_code: str
     account_name: str
-    debit_amount: float | None
-    credit_amount: float | None
+    debit_amount: Optional[float]
+    credit_amount: Optional[float]
     description: str
     transaction_date: Date
     reference_number: str

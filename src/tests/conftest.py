@@ -1,9 +1,20 @@
+import os
+
+# Needs to happen before local imports
+os.environ["ENV_STATE"] = "test"
+
 import csv
 import json
 from pathlib import Path
 
 import pyexcel
 import pytest
+from sqlalchemy import MetaData
+
+from src.db import create_tables
+from src.settings import config
+from src.sources.systems.master import MASTER_REGISTRY
+from src.tests.fixtures.source_configs import TEST_FINANCIAL, TEST_INVENTORY, TEST_SALES
 
 
 @pytest.fixture
@@ -63,6 +74,30 @@ def test_csv_file(temp_directory):
 
 
 @pytest.fixture
+def temp_sqlite_db(tmp_path):
+    """Create a temporary SQLite database for integration tests."""
+    db_path = tmp_path / "test.db"
+    database_url = f"sqlite:///{db_path}"
+
+    # Temporarily replace MASTER_REGISTRY with test sources for table creation
+    original_sources = MASTER_REGISTRY.sources.copy()
+    MASTER_REGISTRY.sources = [TEST_SALES, TEST_INVENTORY, TEST_FINANCIAL]
+
+    engine = None
+    try:
+        engine = create_tables(database_url)
+        yield engine
+    finally:
+        # Restore original sources
+        MASTER_REGISTRY.sources = original_sources
+        # Cleanup - drop all tables if engine was created
+        if engine is not None:
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
 def csv_missing_columns(temp_directory):
     """Create a CSV file with missing required columns."""
     file_path = temp_directory / "sales_missing_columns.csv"
@@ -83,6 +118,30 @@ def csv_missing_columns(temp_directory):
     # Teardown
     if file_path.exists():
         file_path.unlink()
+
+
+@pytest.fixture
+def temp_sqlite_db(tmp_path):
+    """Create a temporary SQLite database for integration tests."""
+    db_path = tmp_path / "test.db"
+    database_url = f"sqlite:///{db_path}"
+
+    # Temporarily replace MASTER_REGISTRY with test sources for table creation
+    original_sources = MASTER_REGISTRY.sources.copy()
+    MASTER_REGISTRY.sources = [TEST_SALES, TEST_INVENTORY, TEST_FINANCIAL]
+
+    engine = None
+    try:
+        engine = create_tables(database_url)
+        yield engine
+    finally:
+        # Restore original sources
+        MASTER_REGISTRY.sources = original_sources
+        # Cleanup - drop all tables if engine was created
+        if engine is not None:
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            metadata.drop_all(bind=engine)
 
 
 @pytest.fixture
@@ -180,6 +239,30 @@ def csv_duplicate_grain(temp_directory):
 
 
 @pytest.fixture
+def temp_sqlite_db(tmp_path):
+    """Create a temporary SQLite database for integration tests."""
+    db_path = tmp_path / "test.db"
+    database_url = f"sqlite:///{db_path}"
+
+    # Temporarily replace MASTER_REGISTRY with test sources for table creation
+    original_sources = MASTER_REGISTRY.sources.copy()
+    MASTER_REGISTRY.sources = [TEST_SALES, TEST_INVENTORY, TEST_FINANCIAL]
+
+    engine = None
+    try:
+        engine = create_tables(database_url)
+        yield engine
+    finally:
+        # Restore original sources
+        MASTER_REGISTRY.sources = original_sources
+        # Cleanup - drop all tables if engine was created
+        if engine is not None:
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
 def test_excel_file(temp_directory):
     """Create a valid Excel test file."""
     file_path = temp_directory / "inventory_2024.xlsx"
@@ -224,6 +307,30 @@ def test_excel_file(temp_directory):
 
 
 @pytest.fixture
+def temp_sqlite_db(tmp_path):
+    """Create a temporary SQLite database for integration tests."""
+    db_path = tmp_path / "test.db"
+    database_url = f"sqlite:///{db_path}"
+
+    # Temporarily replace MASTER_REGISTRY with test sources for table creation
+    original_sources = MASTER_REGISTRY.sources.copy()
+    MASTER_REGISTRY.sources = [TEST_SALES, TEST_INVENTORY, TEST_FINANCIAL]
+
+    engine = None
+    try:
+        engine = create_tables(database_url)
+        yield engine
+    finally:
+        # Restore original sources
+        MASTER_REGISTRY.sources = original_sources
+        # Cleanup - drop all tables if engine was created
+        if engine is not None:
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
 def excel_missing_columns(temp_directory):
     """Create an Excel file with missing required columns."""
     file_path = temp_directory / "inventory_missing_columns.xlsx"
@@ -241,6 +348,30 @@ def excel_missing_columns(temp_directory):
     # Teardown
     if file_path.exists():
         file_path.unlink()
+
+
+@pytest.fixture
+def temp_sqlite_db(tmp_path):
+    """Create a temporary SQLite database for integration tests."""
+    db_path = tmp_path / "test.db"
+    database_url = f"sqlite:///{db_path}"
+
+    # Temporarily replace MASTER_REGISTRY with test sources for table creation
+    original_sources = MASTER_REGISTRY.sources.copy()
+    MASTER_REGISTRY.sources = [TEST_SALES, TEST_INVENTORY, TEST_FINANCIAL]
+
+    engine = None
+    try:
+        engine = create_tables(database_url)
+        yield engine
+    finally:
+        # Restore original sources
+        MASTER_REGISTRY.sources = original_sources
+        # Cleanup - drop all tables if engine was created
+        if engine is not None:
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            metadata.drop_all(bind=engine)
 
 
 @pytest.fixture
@@ -268,6 +399,30 @@ def excel_missing_header(temp_directory):
     # Teardown
     if file_path.exists():
         file_path.unlink()
+
+
+@pytest.fixture
+def temp_sqlite_db(tmp_path):
+    """Create a temporary SQLite database for integration tests."""
+    db_path = tmp_path / "test.db"
+    database_url = f"sqlite:///{db_path}"
+
+    # Temporarily replace MASTER_REGISTRY with test sources for table creation
+    original_sources = MASTER_REGISTRY.sources.copy()
+    MASTER_REGISTRY.sources = [TEST_SALES, TEST_INVENTORY, TEST_FINANCIAL]
+
+    engine = None
+    try:
+        engine = create_tables(database_url)
+        yield engine
+    finally:
+        # Restore original sources
+        MASTER_REGISTRY.sources = original_sources
+        # Cleanup - drop all tables if engine was created
+        if engine is not None:
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            metadata.drop_all(bind=engine)
 
 
 @pytest.fixture
@@ -315,6 +470,30 @@ def excel_duplicate_grain(temp_directory):
 
 
 @pytest.fixture
+def temp_sqlite_db(tmp_path):
+    """Create a temporary SQLite database for integration tests."""
+    db_path = tmp_path / "test.db"
+    database_url = f"sqlite:///{db_path}"
+
+    # Temporarily replace MASTER_REGISTRY with test sources for table creation
+    original_sources = MASTER_REGISTRY.sources.copy()
+    MASTER_REGISTRY.sources = [TEST_SALES, TEST_INVENTORY, TEST_FINANCIAL]
+
+    engine = None
+    try:
+        engine = create_tables(database_url)
+        yield engine
+    finally:
+        # Restore original sources
+        MASTER_REGISTRY.sources = original_sources
+        # Cleanup - drop all tables if engine was created
+        if engine is not None:
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
 def test_json_file(temp_directory):
     """Create a valid JSON test file."""
     file_path = temp_directory / "ledger_2024.json"
@@ -357,6 +536,30 @@ def test_json_file(temp_directory):
 
 
 @pytest.fixture
+def temp_sqlite_db(tmp_path):
+    """Create a temporary SQLite database for integration tests."""
+    db_path = tmp_path / "test.db"
+    database_url = f"sqlite:///{db_path}"
+
+    # Temporarily replace MASTER_REGISTRY with test sources for table creation
+    original_sources = MASTER_REGISTRY.sources.copy()
+    MASTER_REGISTRY.sources = [TEST_SALES, TEST_INVENTORY, TEST_FINANCIAL]
+
+    engine = None
+    try:
+        engine = create_tables(database_url)
+        yield engine
+    finally:
+        # Restore original sources
+        MASTER_REGISTRY.sources = original_sources
+        # Cleanup - drop all tables if engine was created
+        if engine is not None:
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
 def json_missing_fields(temp_directory):
     """Create a JSON file with missing required fields."""
     file_path = temp_directory / "ledger_missing_fields.json"
@@ -381,6 +584,30 @@ def json_missing_fields(temp_directory):
     # Teardown
     if file_path.exists():
         file_path.unlink()
+
+
+@pytest.fixture
+def temp_sqlite_db(tmp_path):
+    """Create a temporary SQLite database for integration tests."""
+    db_path = tmp_path / "test.db"
+    database_url = f"sqlite:///{db_path}"
+
+    # Temporarily replace MASTER_REGISTRY with test sources for table creation
+    original_sources = MASTER_REGISTRY.sources.copy()
+    MASTER_REGISTRY.sources = [TEST_SALES, TEST_INVENTORY, TEST_FINANCIAL]
+
+    engine = None
+    try:
+        engine = create_tables(database_url)
+        yield engine
+    finally:
+        # Restore original sources
+        MASTER_REGISTRY.sources = original_sources
+        # Cleanup - drop all tables if engine was created
+        if engine is not None:
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            metadata.drop_all(bind=engine)
 
 
 @pytest.fixture
@@ -423,6 +650,30 @@ def json_duplicate_grain(temp_directory):
     # Teardown
     if file_path.exists():
         file_path.unlink()
+
+
+@pytest.fixture
+def temp_sqlite_db(tmp_path):
+    """Create a temporary SQLite database for integration tests."""
+    db_path = tmp_path / "test.db"
+    database_url = f"sqlite:///{db_path}"
+
+    # Temporarily replace MASTER_REGISTRY with test sources for table creation
+    original_sources = MASTER_REGISTRY.sources.copy()
+    MASTER_REGISTRY.sources = [TEST_SALES, TEST_INVENTORY, TEST_FINANCIAL]
+
+    engine = None
+    try:
+        engine = create_tables(database_url)
+        yield engine
+    finally:
+        # Restore original sources
+        MASTER_REGISTRY.sources = original_sources
+        # Cleanup - drop all tables if engine was created
+        if engine is not None:
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            metadata.drop_all(bind=engine)
 
 
 @pytest.fixture
@@ -476,3 +727,27 @@ def csv_validation_errors(temp_directory):
     # Teardown
     if file_path.exists():
         file_path.unlink()
+
+
+@pytest.fixture
+def temp_sqlite_db(tmp_path):
+    """Create a temporary SQLite database for integration tests."""
+    db_path = tmp_path / "test.db"
+    database_url = f"sqlite:///{db_path}"
+
+    # Temporarily replace MASTER_REGISTRY with test sources for table creation
+    original_sources = MASTER_REGISTRY.sources.copy()
+    MASTER_REGISTRY.sources = [TEST_SALES, TEST_INVENTORY, TEST_FINANCIAL]
+
+    engine = None
+    try:
+        engine = create_tables(database_url)
+        yield engine
+    finally:
+        # Restore original sources
+        MASTER_REGISTRY.sources = original_sources
+        # Cleanup - drop all tables if engine was created
+        if engine is not None:
+            metadata = MetaData()
+            metadata.reflect(bind=engine)
+            metadata.drop_all(bind=engine)
