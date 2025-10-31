@@ -288,7 +288,34 @@ class FileProcessor:
             if failed_audits:
                 log.audit_ended_at = pendulum.now()
                 log.audit_success = False
-                error_msg = f"Audit checks failed for file: {source_filename} table: {stage_table_name} audits: {failed_audits}"
+
+                error_msg_parts = [
+                    f"Audit checks failed for file: {source_filename}",
+                    f"Table: {stage_table_name}",
+                    f"Failed audits: {', '.join(failed_audits)}",
+                ]
+
+                grain_related_audits = [
+                    audit for audit in failed_audits if "grain_unique" in audit.lower()
+                ]
+
+                if grain_related_audits and source.grain:
+                    grain_aliases = []
+                    for grain_field in source.grain:
+                        field_info = source.source_model.model_fields.get(grain_field)
+                        if field_info:
+                            alias = (
+                                field_info.alias if field_info.alias else grain_field
+                            )
+                            grain_aliases.append(alias)
+                        else:
+                            grain_aliases.append(grain_field)
+
+                    error_msg_parts.append(
+                        f"Grain columns (file column names): {', '.join(grain_aliases)}"
+                    )
+
+                error_msg = "\n".join(error_msg_parts)
                 raise AuditFailedError(error_msg)
             log.audit_ended_at = pendulum.now()
             log.audit_success = True
