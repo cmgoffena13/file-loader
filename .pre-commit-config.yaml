@@ -19,7 +19,7 @@ repos:
     hooks:
       - id: pytest
         name: pytest
-        entry: uv run -- pytest
+        entry: uv run -- pytest -v -n auto
         language: system
         types: [python]
         pass_filenames: false

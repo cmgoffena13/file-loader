@@ -26,12 +26,27 @@ class ExcelReader(BaseReader):
         except StopIteration:
             raise ValueError(f"No data found in Excel file: {self.file_path}")
 
-        if not any(isinstance(key, str) and key.strip() for key in first_record.keys()):
+        actual_headers = set(first_record.keys())
+
+        # Check if headers are empty/whitespace OR all look like default pyexcel column names (e.g., '', '-1', '-2')
+        # These are created when headers are missing or empty
+        no_valid_headers = not any(
+            isinstance(key, str) and key.strip() for key in actual_headers
+        )
+        all_default_names = len(actual_headers) > 0 and all(
+            (
+                not key
+                or not str(key).strip()
+                or (isinstance(key, str) and str(key).strip().lstrip("-").isdigit())
+            )
+            for key in actual_headers
+        )
+
+        if no_valid_headers or all_default_names:
             raise MissingHeaderError(
                 f"Empty or invalid column headers in Excel file: {self.file_path}"
             )
 
-        actual_headers = set(first_record.keys())
         self._validate_fields(actual_headers)
 
         if self.skip_rows <= 0:

@@ -14,11 +14,12 @@ class BaseReader(ABC):
             raise FileNotFoundError(f"File not found: {self.file_path}")
 
     def _validate_fields(self, actual_fields: set[str]) -> None:
+        actual_fields_lowered = set[str](field.lower() for field in actual_fields)
         expected_fields = set[str](
-            field.alias if field.alias else name
+            field.alias.lower() if field.alias else name.lower()
             for name, field in self.source.source_model.model_fields.items()
         )
-        missing_fields = expected_fields - actual_fields
+        missing_fields = expected_fields - actual_fields_lowered
 
         if missing_fields:
             required_fields_display = sorted(expected_fields)

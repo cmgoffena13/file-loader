@@ -8,7 +8,7 @@ install:
 	uv sync --frozen --compile-bytecode
 
 test:
-	uv run -- pytest -v
+	uv run -- pytest -v -n auto
 
 dev: reset
 	docker compose up -d

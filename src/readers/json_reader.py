@@ -82,7 +82,7 @@ class JSONReader(BaseReader):
     ) -> Dict[str, Any]:
         items = []
         for k, v in dictionary.items():
-            new_key = f"{parent_key}{sep}{k}" if parent_key else k
+            new_key = f"{parent_key}{sep}{k}".lower() if parent_key else k.lower()
             if isinstance(v, dict):
                 items.extend(self._flatten_dict(v, new_key, sep=sep).items())
             elif isinstance(v, list):
@@ -93,13 +93,13 @@ class JSONReader(BaseReader):
                         if isinstance(item, dict):
                             items.extend(
                                 self._flatten_dict(
-                                    item, f"{new_key}{sep}{i}", sep=sep
+                                    item, f"{new_key}{sep}{i}".lower(), sep=sep
                                 ).items()
                             )
                         else:
                             items.append(
                                 (
-                                    f"{new_key}{sep}{i}",
+                                    f"{new_key}{sep}{i}".lower(),
                                     self._convert_decimals_to_float(item),
                                 )
                             )

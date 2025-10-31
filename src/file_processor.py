@@ -81,9 +81,9 @@ class FileProcessor:
         field_mapping = {}
         for field_name, field_info in reader.source.source_model.model_fields.items():
             if field_info.alias:
-                field_mapping[field_info.alias] = field_name
+                field_mapping[field_info.alias.lower()] = field_name
             else:
-                field_mapping[field_name] = field_name
+                field_mapping[field_name.lower()] = field_name
         return field_mapping
 
     def _process_file(
@@ -137,7 +137,9 @@ class FileProcessor:
 
             # Rename alias keys to column names and trim unneeded columns
             record = {
-                field_mapping[k]: v for k, v in record.items() if k in field_mapping
+                field_mapping[k.lower()]: v
+                for k, v in record.items()
+                if k.lower() in field_mapping
             }
 
             record["etl_row_hash"] = create_row_hash(record)

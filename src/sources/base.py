@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Optional, Type
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_extra_types.pendulum_dt import DateTime
 
 
@@ -32,7 +32,9 @@ class FileLoadLog(BaseModel):
 
 
 class TableModel(BaseModel):
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(
+        validate_by_name=True, validate_by_alias=True, case_insensitive=True
+    )
 
 
 class DataSource(BaseModel):
@@ -49,7 +51,7 @@ class DataSource(BaseModel):
     )  # List of email addresses to notify on failures
 
     def matches_file(self, file_path: str) -> bool:
-        return Path(file_path).match(self.file_pattern)
+        return Path(file_path.lower()).match(self.file_pattern.lower())
 
 
 class CSVSource(DataSource):
