@@ -1,4 +1,0 @@
-transaction_id,customer_id,product_sku,quantity,unit_price,total_amount,sale_date,sales_rep
-TXN001,CUST123,ABC123,2,19.99,39.98,2024-01-15,John Smith
-TXN002,CUST456,XYZ789,1,99.50,99.50,2024-01-16,Jane Doe
-TXN003,CUST789,DEF456,5,9.99,49.95,2024-01-17,Bob Wilson

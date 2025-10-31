@@ -160,6 +160,7 @@ The system uses **parallel processing** with threads to handle multiple files co
 
 The `file_load_log` table automatically tracks detailed metrics for every file processing run:
 
+- **File Copy Phase**: start/end timestamps
 - **Processing Phase**: Records processed count, validation errors count, start/end timestamps
 - **Staging Phase**: Records loaded into staging table count, start/end timestamps
 - **Audit Phase**: Audit success/failure status, start/end timestamps  

@@ -129,6 +129,10 @@ def create_tables() -> Engine:
         Column("id", Integer, primary_key=True, autoincrement=True),
         Column("file_name", String, nullable=False),
         Column("started_at", SQLDateTime, nullable=False),
+        # archive copy phase
+        Column("archive_copy_started_at", SQLDateTime, nullable=True),
+        Column("archive_copy_ended_at", SQLDateTime, nullable=True),
+        Column("archive_copy_success", Boolean, nullable=True),
         # processing phase
         Column("processing_started_at", SQLDateTime, nullable=True),
         Column("processing_ended_at", SQLDateTime, nullable=True),

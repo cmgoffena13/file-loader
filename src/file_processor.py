@@ -94,6 +94,25 @@ class FileProcessor:
                 )
                 return False
 
+    def _copy_to_archive(
+        self, file_path: Path, archive_path: Path, log: FileLoadLog
+    ) -> None:
+        """Copy file to archive directory with logging."""
+        archive_file_path = archive_path / file_path.name
+        try:
+            log.archive_copy_started_at = pendulum.now()
+            shutil.copyfile(file_path, archive_file_path)
+            log.archive_copy_ended_at = pendulum.now()
+            log.archive_copy_success = True
+            logger.info(
+                f"[log_id={log.id}] Copied {file_path.name} to archive: {archive_file_path}"
+            )
+        except Exception as e:
+            logger.error(
+                f"[log_id={log.id}] Failed to copy {file_path.name} to archive: {e}"
+            )
+            raise
+
     def _move_to_duplicates(self, file_path: Path, duplicates_path: Path) -> None:
         """Move a duplicate file to the duplicates directory."""
         duplicates_path.mkdir(parents=True, exist_ok=True)
@@ -122,20 +141,9 @@ class FileProcessor:
     def _process_file(
         self, file_path: Path, archive_path: Path, reader: BaseReader, log: FileLoadLog
     ) -> Iterator[Dict[str, Any]]:
+        self._copy_to_archive(file_path, archive_path, log)
+
         log.processing_started_at = pendulum.now()
-
-        archive_file_path = archive_path / file_path.name
-        try:
-            shutil.copyfile(file_path, archive_file_path)
-            logger.info(
-                f"[log_id={log.id}] Copied {file_path.name} to archive: {archive_file_path}"
-            )
-        except Exception as e:
-            logger.error(
-                f"[log_id={log.id}] Failed to copy {file_path.name} to archive: {e}"
-            )
-            raise
-
         records_processed = 0
         validation_errors = 0
         sample_validation_errors = []
