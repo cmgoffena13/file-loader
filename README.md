@@ -36,17 +36,23 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - **Multiple File Formats**: Supports CSV, Excel (`.xlsx`, `.xls`), and JSON files
 - **Memory Efficient**: Uses iterative reading to handle large files without loading everything into memory
 - **Parallel Processing**: Processes multiple files concurrently using thread pools
-- **Database Support**: PostgreSQL, MySQL, and SQL Server Compatability
-- **Portable/Flexible**: Dockerized deployment option for containerized execution or native installation using UV. Supports multiple database backends (MySQL, PostgreSQL, SQL Server) for flexible infrastructure requirements
+- **Flexible Database Support**: PostgreSQL, MySQL, and SQL Server Compatability with proper indexing
+- **Portable/Flexible**: Dockerized deployment option for containerized execution or native installation using UV. 
 
 ## Reliable
 
 - **Data Validation**: Pydantic model validation for each record
-- **Write-Audit-Publish Pattern**: Loads data into stage tables, audits it, then merges to target tables
+- **Write-Audit-Publish Pattern**: Writes data into stage tables, audits it, then publishes to target tables
 - **Audit Framework**: Configurable audit queries to ensure data quality
 - **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures
-- **Error Isolation**: Errors in one file do not stop processing of other files - each file is processed independently with errors logged to `file_load_log` table
-- **Notifications**: Email notifications to business stakeholders if it is a file-based issue (No Header, Missing Column, Validation Threshold Reached, or Audit Failed). Slack notifications to Data Team if it is an internal processing error to show detailed information for debugging
+- **Error Isolation**: Errors in one file do not stop processing of other files - each file is processed independently with errors logged to `file_load_log` table and optional notification firing
+- **Notifications**: 
+  - Email notifications to business stakeholders for file-based issues:
+    - No Header detected
+    - Missing required columns/fields
+    - Record validation error threshold exceeded
+    - Dataset audits failed
+  - Slack notifications to Data Team for internal processing errors (code bugs, database failures) with detailed debugging information
 - **File Management**: Automatic archiving and deletion after successful processing to keep directory clean
 
 ## Maintainable
