@@ -115,37 +115,37 @@ Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex
 
 ### File Processing Pipeline
 
-The system uses **parallel processing** with threads to handle multiple files concurrently. The file load process is detailed below:
+The system uses **parallel processing** with threads to handle multiple files concurrently. Below is the process for **a individual file**:
 
-1. **File Discovery**: Scans the designated directory (`DIRECTORY_PATH`) for supported file types (CSV, Excel, JSON)
+1. **File Discovery**: The file is discovered during a scan of the designated directory (`DIRECTORY_PATH`) for supported file types (CSV, Excel, JSON)
 
-2. **Early Duplicate Detection**: Checks if the file has already been processed by querying target tables. If duplicate detected, moves file to duplicates directory and skips processing (prevents accidental overwrites and directory clutter)
+2. **Early Duplicate Detection**: The system checks if this file has already been processed by querying the target table. If a duplicate is detected, the file is moved to the duplicates directory and processing is skipped (prevents accidental overwrites and directory clutter)
 
-3. **Archive First**: Immediately copies the file to the archive directory before any processing begins (preserves original for recovery) - only for non-duplicate files
+3. **Archive First**: The file is immediately copied to the archive directory before any processing begins (preserves original for recovery) - only for non-duplicate files
 
-4. **Pattern Matching**: Uses pattern matching to match file names against source configurations to determine processing rules
+4. **Pattern Matching**: The file name is matched against source configurations using pattern matching to determine the processing rules
 
-5. **Missing Header Detection**: Checks for required headers/fields in the file (CSV/Excel) or validates field presence (JSON). Errors immediately if no header.
+5. **Missing Header Detection**: The file is checked for required headers/fields (CSV/Excel) or field presence (JSON). Errors immediately if no header is found.
 
-6. **Missing Column Detection**: Errors immediately if any required columns/fields are missing from the file
+6. **Missing Column Detection**: The file is checked for all required columns/fields. Errors immediately if any are missing.
 
-7. **Dynamic Column Mapping**: Maps column names using Pydantic field aliases - supports flexible column naming in source files
+7. **Dynamic Column Mapping**: Column names in the file are mapped using Pydantic field aliases to have database compatible names - supports flexible column naming in source files
 
-8. **Column Pruning**: Automatically removes unnecessary columns that aren't defined in the source model
+8. **Column Pruning**: Unnecessary columns that aren't defined in the source model are automatically removed
 
-9. **Iterative Row Processing**: Processes rows iteratively using generators for memory efficiency - handles large files without loading everything into memory
+9. **Iterative Row Processing**: Rows in the file are processed iteratively using generators for memory efficiency - handles large files without loading everything into memory
 
-10. **Record Validation**: Each record is validated against the Pydantic model schema. Records that fail validation are logged but **do not** get inserted into the staging table. A `validation_error_threshold` can be configured per source file - if the error rate (validation_errors / records_processed) exceeds the threshold, processing stops and the file is marked as failed. Default validation_error_threshold is zero.
+10. **Record Validation**: Each record from the file is validated against the Pydantic model schema. Records that fail validation are logged but **do not** get inserted into the staging table. A `validation_error_threshold` can be configured per source - if the error rate (validation_errors / records_processed) exceeds the threshold, processing stops and the file is marked as failed. Default validation_error_threshold is zero.
 
-11. **Staging Table Creation**: Automatically creates a unique staging table (`stage_{filename}`) for each file, enabling parallel processing of multiple files targeting the same destination table
+11. **Staging Table Creation**: A unique staging table (`stage_{filename}`) is automatically created for this file, enabling parallel processing of multiple files targeting the same destination table
 
-12. **Chunked Inserts**: Inserts records into the staging table in configurable batches (`BATCH_SIZE`) for memory efficiency
+12. **Chunked Inserts**: Validated records are inserted into the staging table in configurable batches (`BATCH_SIZE`) for memory efficiency (default 10,000)
 
-13. **Data Auditing**: Executes configured audit queries on the staging table (e.g., grain uniqueness checks). If any audit fails, the merge step is skipped and the process is marked as failed
+13. **Data Auditing**: Configured audit queries are executed on the staging table (e.g., grain uniqueness checks). If any audit fails, the merge step is skipped and the file processing is marked as failed
 
-14. **MERGE Operation**: Merges staging data into the target table based on grain columns, handling inserts and updates appropriately
+14. **MERGE Operation**: Data from the staging table is merged into the target table based on grain columns, handling inserts and updates appropriately
 
-15. **Cleanup**: Drops the staging table and deletes the original file from the directory. The archived copy remains for recovery if needed (simply move from archive back to directory to reprocess). If bad data got into the table, then DELETE out of the target table where `source_filename = {file_name}` and then reprocess.
+15. **Cleanup**: The staging table is dropped and the original file is deleted from the directory. The archived copy remains for recovery if needed (simply move from archive back to directory to reprocess). If bad data got into the target table, then DELETE from the target table where `source_filename = {file_name}` and then reprocess.
 
 **Note on Duplicate Files**: Files that have already been processed are detected early (step 2) and moved to the `DUPLICATE_FILES_PATH` directory. This prevents directory clutter and accidental data overwrites. To reprocess a duplicate file, first DELETE the existing records from the target table where `source_filename = {file_name}`, then move the file from the duplicates directory back to `DIRECTORY_PATH`.
 
@@ -160,7 +160,7 @@ The `file_load_log` table automatically tracks detailed metrics for every file p
 - **Processing Phase**: Records processed count, validation errors count, start/end timestamps
 - **Staging Phase**: Records loaded into staging table count, start/end timestamps
 - **Audit Phase**: Audit success/failure status, start/end timestamps  
-- **Merge Phase**: Records inserted/updated in target table counts, merge success/skip status, start/end timestamps
+- **Merge Phase**: Records inserted/updated in target table counts, start/end timestamps
 - **Overall Status**: Success/failure status for the entire file processing run, start/end timestamps
 
 All metrics are logged automatically throughout the process, providing complete visibility into each stage of the ETL pipeline.

@@ -120,16 +120,9 @@ class FileProcessor:
         return field_mapping
 
     def _process_file(
-        self, file_path: str, archive_path: str, reader: BaseReader, log: FileLoadLog
+        self, file_path: Path, archive_path: Path, reader: BaseReader, log: FileLoadLog
     ) -> Iterator[Dict[str, Any]]:
         log.processing_started_at = pendulum.now()
-        try:
-            file_path = Path(file_path)
-            archive_path = Path(archive_path)
-        except Exception as e:
-            raise ValueError(
-                f"Invalid file path: {file_path} or archive path: {archive_path}: {e}"
-            )
 
         archive_file_path = archive_path / file_path.name
         try:
@@ -461,37 +454,38 @@ class FileProcessor:
                     f"[log_id={log.id}] Failed to drop stage table {stage_table_name}: {e}"
                 )
 
-    def _process_file_batch(self, batch: List[str], archive_path: str) -> list[dict]:
+    def _process_file_batch(self, batch: List[str], archive_path: Path) -> list[dict]:
         results: list[dict] = []
-        duplicates_path = Path(config.DUPLICATE_FILES_PATH)
+        duplicates_path = config.DUPLICATE_FILES_PATH
 
-        for file_path in batch:
-            file_path_obj = Path(file_path)
+        for file_path_str in batch:
+            file_path = Path(file_path_str)
             try:
-                reader = self._get_reader(file_path_obj)
+                reader = self._get_reader(file_path)
                 if not reader:
                     logger.warning(
-                        f"[log_id=N/A] No reader found for file: {file_path_obj.name}"
+                        f"[log_id=N/A] No reader found for file: {file_path.name}"
                     )
                     continue
 
-                if self._check_duplicate_file(reader.source, file_path_obj.name):
+                file_name = reader.file_path.name
+                if self._check_duplicate_file(reader.source, file_name):
                     logger.warning(
-                        f"[log_id=N/A] File {file_path_obj.name} has already been processed - moving to duplicates directory"
+                        f"[log_id=N/A] File {file_name} has already been processed - moving to duplicates directory"
                     )
-                    self._move_to_duplicates(file_path_obj, duplicates_path)
+                    self._move_to_duplicates(file_path, duplicates_path)
                     logger.info(
-                        f"[log_id=N/A] Successfully moved duplicate file {file_path_obj.name} to duplicates directory"
+                        f"[log_id=N/A] Successfully moved duplicate file {file_name} to duplicates directory"
                     )
                     if reader.source.notification_emails:
                         error_message = (
-                            f"The file {file_path_obj.name} has already been processed and has been moved to the duplicates directory.\n\n"
+                            f"The file {file_name} has already been processed and has been moved to the duplicates directory.\n\n"
                             f"To reprocess this file:\n"
-                            f"1. Existing records need to be removed from the target table where source_filename = '{file_path_obj.name}'\n"
+                            f"1. Existing records need to be removed from the target table where source_filename = '{file_name}'\n"
                             f"2. Move the file from the duplicates directory back to the processing directory"
                         )
                         send_failure_notification(
-                            file_name=file_path_obj.name,
+                            file_name=file_name,
                             error_type="Duplicate File Detected",
                             error_message=error_message,
                             log_id=None,
@@ -501,7 +495,7 @@ class FileProcessor:
                     continue
 
                 log = FileLoadLog(
-                    file_name=file_path_obj.name,
+                    file_name=file_name,
                     started_at=pendulum.now(),
                 )
                 log.id = self._log_start(log.file_name, log.started_at)
@@ -528,7 +522,7 @@ class FileProcessor:
 
                 if reader.source.notification_emails:
                     send_failure_notification(
-                        file_name=Path(file_path).name,
+                        file_name=file_path.name,
                         error_type=e.error_type,
                         error_message=str(e),
                         log_id=log.id,
@@ -545,7 +539,7 @@ class FileProcessor:
 
                 send_slack_notification(
                     error_message=str(e),
-                    file_name=Path(file_path).name,
+                    file_name=file_path.name,
                     log_id=log.id if log else None,
                     error_location=get_error_location(e),
                 )
@@ -560,7 +554,7 @@ class FileProcessor:
         return results
 
     def process_files_parallel(
-        self, file_paths: List[str], archive_path: str
+        self, file_paths: List[str], archive_path: Path
     ) -> list[dict]:
         """Process multiple files in parallel using thread pool."""
 

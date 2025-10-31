@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def process_directory() -> list[dict]:
-    directory = Path(config.DIRECTORY_PATH)
+    directory = config.DIRECTORY_PATH
 
     if not directory.exists():
         raise FileNotFoundError(f"Directory not found: {directory}")

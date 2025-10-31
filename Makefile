@@ -17,3 +17,4 @@ dev: reset
 
 reset:
 	cp -R src/tests/archive_data/* src/tests/test_data/
+	rm -rf src/tests/duplicate_files_data/*

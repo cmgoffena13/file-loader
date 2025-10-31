@@ -1,6 +1,8 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,9 +14,10 @@ class BaseConfig(BaseSettings):
 
 class GlobalConfig(BaseConfig):
     DATABASE_URL: str
-    DIRECTORY_PATH: str
-    ARCHIVE_PATH: str
-    DUPLICATE_FILES_PATH: str
+    DIRECTORY_PATH: Path
+    ARCHIVE_PATH: Path
+    DUPLICATE_FILES_PATH: Path
+
     BATCH_SIZE: int = 10000
     LOG_LEVEL: str = "INFO"
     # Email notification settings
@@ -29,14 +32,23 @@ class GlobalConfig(BaseConfig):
         None  # Slack webhook URL for internal processing errors
     )
 
+    @field_validator(
+        "DIRECTORY_PATH", "ARCHIVE_PATH", "DUPLICATE_FILES_PATH", mode="before"
+    )
+    @classmethod
+    def convert_path(cls, v):
+        if isinstance(v, Path):
+            return v
+        return Path(v) if v else v
+
 
 class DevConfig(GlobalConfig):
     DATABASE_URL: str = (
         "postgresql+psycopg://fileloader:fileloader@localhost:5432/fileloader"
     )
-    DIRECTORY_PATH: str = "src/tests/test_data"
-    ARCHIVE_PATH: str = "src/tests/archive_data"
-    DUPLICATE_FILES_PATH: str = "src/tests/duplicate_files_data"
+    DIRECTORY_PATH: Path = Path("src/tests/test_data")
+    ARCHIVE_PATH: Path = Path("src/tests/archive_data")
+    DUPLICATE_FILES_PATH: Path = Path("src/tests/duplicate_files_data")
     LOG_LEVEL: str = "DEBUG"
 
     model_config = SettingsConfigDict(env_prefix="DEV_")
@@ -44,9 +56,9 @@ class DevConfig(GlobalConfig):
 
 class TestConfig(GlobalConfig):
     DATABASE_URL: str = "sqlite:///:memory:"
-    DIRECTORY_PATH: str = "src/tests/test_data"
-    ARCHIVE_PATH: str = "src/tests/archive_data"
-    DUPLICATE_FILES_PATH: str = "src/tests/duplicate_files_data"
+    DIRECTORY_PATH: Path = Path("src/tests/test_data")
+    ARCHIVE_PATH: Path = Path("src/tests/archive_data")
+    DUPLICATE_FILES_PATH: Path = Path("src/tests/duplicate_files_data")
     BATCH_SIZE: int = 100
 
     model_config = SettingsConfigDict(env_prefix="TEST_")

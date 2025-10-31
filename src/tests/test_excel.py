@@ -1,7 +1,6 @@
 import tempfile
 
 import pytest
-from sqlalchemy.orm import Session, sessionmaker
 
 from src.exceptions import MissingColumnsError, MissingHeaderError
 from src.file_processor import FileProcessor
@@ -78,9 +77,6 @@ def test_excel_duplicate_grain_fails_audit(excel_duplicate_grain, temp_sqlite_db
         MASTER_REGISTRY.sources = [TEST_INVENTORY]
 
         processor = FileProcessor()
-        # Override the engine with our test database
-        processor.engine = temp_sqlite_db
-        processor.Session = sessionmaker[Session](bind=temp_sqlite_db)
 
         # Process file - should fail during audit
         results = processor.process_files_parallel(
