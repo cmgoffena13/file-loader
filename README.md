@@ -39,7 +39,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - **Parallel Processing**: Processes multiple files concurrently using thread pools
 - **Flexible Database Support**: PostgreSQL, MySQL, and SQL Server Compatability
 - **Proper Indexing**: Table indexing strategy that supports high data volumes
-- **Portable/Flexible**: Dockerized deployment option for containerized execution or native installation using UV
+- **Portable/Flexible**: Dockerized deployment option for containerized execution or native installation using `uv`
 
 ## Reliable
 
@@ -47,7 +47,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - **Write-Audit-Publish Pattern**: 
   - Writes data into a staging table
   - Audits the staging data
-  - Publishes to target tables
+  - Publishes to target table
 - **Audit Framework**: Configurable audit queries to ensure data quality
 - **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures
 - **Error Isolation**: Errors in one file do not stop processing of other files - each file is processed independently with errors logged to `file_load_log` table and optional notification firing
@@ -57,6 +57,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
     - Missing required columns/fields
     - Record validation error threshold exceeded
     - Dataset audits failed
+    - Duplicate file detected (file already processed)
   - Slack notifications to Data Team for internal processing errors (code bugs, database failures) with detailed debugging information
 - **File Management**: Automatic archiving and deletion after successful processing to keep directory clean
 
@@ -90,11 +91,10 @@ pre-commit install --install-hooks
 Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex. DEV_DATABASE_URL):
 
 **Required:**
-- `DATABASE_URL`: Database connection string (where to load the files) - **Required**
-- `DIRECTORY_PATH`: Directory to watch for files - **Required**
-- `ARCHIVE_PATH`: Directory to archive processed files - **Required**
-- `DUPLICATE_FILES_PATH`: Directory to move duplicate files (files that have already been processed) - **Required**
-- `BATCH_SIZE`: Number of records per batch insert (default: 10000)
+- `DATABASE_URL`: Database connection string (where to load the files)
+- `DIRECTORY_PATH`: Directory to watch for files
+- `ARCHIVE_PATH`: Directory to archive processed files
+- `DUPLICATE_FILES_PATH`: Directory to move duplicate files (files that have already been processed)
 
 ### Email Notifications (Optional)
 - `SMTP_HOST`: SMTP server hostname
@@ -107,6 +107,9 @@ Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex
 ### Slack Notifications (Optional)
 - `SLACK_WEBHOOK_URL`: Slack webhook URL for internal processing errors (code-based issues, not file validation problems)
 
+### Batch Size
+- `BATCH_SIZE`: Number of records per batch insert (default: 10000)
+
 ## How It Works
 
 ### Initialization
@@ -115,7 +118,7 @@ Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex
 
 ### File Processing Pipeline
 
-The system uses **parallel processing** with threads to handle multiple files concurrently. Below is the process for **a individual file**:
+The system uses **parallel processing** with threads to handle multiple files concurrently. Below is the process for **an individual file**:
 
 1. **File Discovery**: The file is discovered during a scan of the designated directory (`DIRECTORY_PATH`) for supported file types (CSV, Excel, JSON)
 
@@ -150,7 +153,7 @@ The system uses **parallel processing** with threads to handle multiple files co
 **Note on Duplicate Files**: Files that have already been processed are detected early (step 2) and moved to the `DUPLICATE_FILES_PATH` directory. This prevents directory clutter and accidental data overwrites. To reprocess a duplicate file, first DELETE the existing records from the target table where `source_filename = {file_name}`, then move the file from the duplicates directory back to `DIRECTORY_PATH`.
 
 16. **Failure Notifications**: 
-    - **Email**: If `notification_emails` is configured for a source, email notifications are automatically sent to business owners when files fail (validation threshold exceeded, audit failures, missing headers/columns). The data team (configured via `DATA_TEAM_EMAIL`) is always CC'd. Notifications include error details, log_id for reference, and sample validation errors when applicable.
+    - **Email**: If `notification_emails` is configured for a source, email notifications are automatically sent to business owners when files fail (missing headers, missing columns, validation threshold exceeded, audit failures, duplicate files). The data team (configured via `DATA_TEAM_EMAIL`) is always CC'd. Notifications include error details, log_id for reference, and sample validation errors when applicable.
     - **Slack**: Internal processing errors (code bugs, database connection failures, system exceptions) are automatically sent to Slack if `SLACK_WEBHOOK_URL` is configured. These are separate from file-related issues and include system information.
 
 ### Detailed Logging
@@ -239,9 +242,11 @@ All sources require:
 ### Optional Fields
 
 - `notification_emails`: List of email addresses (e.g., `["owner@company.com", "team@company.com"]`) to notify when files fail. If configured, notifications are sent for:
+  - Missing header detected (no headers found in file)
+  - Missing required columns/fields (file is missing expected columns)
   - Validation threshold exceeded (too many validation errors)
   - Audit failures (data quality checks failed)
-  - General processing errors
+  - Duplicate file detected (file has already been processed)
   - The data team (configured via `DATA_TEAM_EMAIL` setting) is always CC'd for visibility
 
 ### Format-Specific Fields
