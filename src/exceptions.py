@@ -12,3 +12,12 @@ class MissingColumnsError(Exception):
 
 class ValidationThresholdExceededError(Exception):
     error_type = "Validation Threshold Exceeded"
+
+
+# File-specific errors that should not be retried and are handled via email notifications
+FILE_ERROR_EXCEPTIONS = {
+    MissingHeaderError,
+    MissingColumnsError,
+    ValidationThresholdExceededError,
+    AuditFailedError,
+}

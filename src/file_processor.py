@@ -22,7 +22,7 @@ from src.exceptions import (
     MissingHeaderError,
     ValidationThresholdExceededError,
 )
-from src.notifications import send_failure_notification, send_slack_notification
+from src.notifications import send_failure_notification
 from src.readers.base_reader import BaseReader
 from src.readers.reader_factory import ReaderFactory
 from src.retry import get_error_location, retry
@@ -261,9 +261,7 @@ class FileProcessor:
 
         finally:
             reader.file_path.unlink()
-            logger.info(
-                f"[log_id={log.id}] Deleted {source_filename} after successful load"
-            )
+            logger.info(f"[log_id={log.id}] Deleted {source_filename}")
             self._drop_stage_table(stage_table_name, log)
 
     def _calculate_batch_size(self, source) -> int:
@@ -465,6 +463,7 @@ class FileProcessor:
     def _process_file_batch(self, batch: List[str], archive_path: Path) -> list[dict]:
         results: list[dict] = []
         duplicates_path = config.DUPLICATE_FILES_PATH
+        log = None
 
         for file_path_str in batch:
             file_path = Path(file_path_str)

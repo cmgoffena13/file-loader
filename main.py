@@ -1,11 +1,6 @@
 import logging
 
-from src.exceptions import (
-    AuditFailedError,
-    MissingColumnsError,
-    MissingHeaderError,
-    ValidationThresholdExceededError,
-)
+from src.exceptions import FILE_ERROR_EXCEPTIONS
 from src.notifications import send_slack_notification
 from src.retry import get_error_location
 from src.settings import config
@@ -30,12 +25,7 @@ def main():
         results = process_directory()
         # File-specific errors (MissingHeaderError, etc.) are emailed to business stakeholders
         # Code problems (unexpected exceptions) should go to Slack
-        file_error_types = {
-            MissingHeaderError.error_type,
-            MissingColumnsError.error_type,
-            ValidationThresholdExceededError.error_type,
-            AuditFailedError.error_type,
-        }
+        file_error_types = {exc.error_type for exc in FILE_ERROR_EXCEPTIONS}
         code_failures = [
             r
             for r in results
