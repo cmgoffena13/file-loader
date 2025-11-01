@@ -9,7 +9,7 @@ class FileLoadLog(BaseModel):
     id: Optional[int] = None
     file_name: str
     started_at: DateTime
-    duplicate_skipped: Optional[bool] = False
+    duplicate_skipped: Optional[bool] = None
     archive_copy_started_at: Optional[DateTime] = None
     archive_copy_ended_at: Optional[DateTime] = None
     archive_copy_success: Optional[bool] = None
@@ -32,6 +32,7 @@ class FileLoadLog(BaseModel):
     target_inserts: Optional[int] = None
     target_updates: Optional[int] = None
     success: Optional[bool] = None
+    error_type: Optional[str] = None
 
 
 class TableModel(BaseModel):

@@ -17,9 +17,8 @@ from src.db import (
     get_table_columns,
 )
 from src.exceptions import (
+    FILE_ERROR_EXCEPTIONS,
     AuditFailedError,
-    MissingColumnsError,
-    MissingHeaderError,
     ValidationThresholdExceededError,
 )
 from src.notifications import send_failure_notification
@@ -501,10 +500,10 @@ class FileProcessor:
                             file_name=file_name,
                             error_type="Duplicate File Detected",
                             error_message=error_message,
-                            log_id=None,
+                            log_id=log.id,
                             recipient_emails=reader.source.notification_emails,
                         )
-
+                    self._log_update(log)
                     continue
                 try:
                     log = self._load_records(
@@ -519,12 +518,7 @@ class FileProcessor:
                     self._log_update(log)
 
                 results.append(log.model_dump(include={"id", "file_name", "success"}))
-            except (
-                MissingHeaderError,
-                MissingColumnsError,
-                ValidationThresholdExceededError,
-                AuditFailedError,
-            ) as e:
+            except tuple(FILE_ERROR_EXCEPTIONS) as e:
                 logger.error(f"[log_id={log.id}] Failed to process {file_path}: {e}")
 
                 if reader.source.notification_emails:
@@ -538,6 +532,7 @@ class FileProcessor:
 
                 log.ended_at = pendulum.now()
                 log.success = False
+                log.error_type = e.error_type
                 self._log_update(log)
                 results.append(
                     {
@@ -556,6 +551,7 @@ class FileProcessor:
                 if log:
                     log.ended_at = pendulum.now()
                     log.success = False
+                    log.error_type = type(e).__name__
                     self._log_update(log)
                 results.append(
                     {

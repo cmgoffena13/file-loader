@@ -158,10 +158,10 @@ def create_tables() -> Engine:
         Column("target_inserts", Integer, nullable=True),
         Column("target_updates", Integer, nullable=True),
         Column("success", Boolean, nullable=True),
+        Column("error_type", String(50), nullable=True),
     )
     Index("idx_file_load_log_file_name", file_load_log.c.file_name)
     tables.append(file_load_log)
-    metadata.drop_all(engine, tables=tables)
     metadata.create_all(engine, tables=tables)
     return engine
 
