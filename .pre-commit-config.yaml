@@ -13,7 +13,14 @@ repos:
         language: system
         types: [python]
         pass_filenames: true
-        
+
+  - repo: local
+    hooks:
+      - id: reset-files
+        name: reset-files
+        entry: make reset
+        language: system
+        pass_filenames: true   
 
   - repo: local
     hooks:
