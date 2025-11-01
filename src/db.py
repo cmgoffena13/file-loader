@@ -129,6 +129,7 @@ def create_tables() -> Engine:
         Column("id", Integer, primary_key=True, autoincrement=True),
         Column("file_name", String, nullable=False),
         Column("started_at", SQLDateTime, nullable=False),
+        Column("duplicate_skipped", Boolean, nullable=True),
         # archive copy phase
         Column("archive_copy_started_at", SQLDateTime, nullable=True),
         Column("archive_copy_ended_at", SQLDateTime, nullable=True),
@@ -160,6 +161,7 @@ def create_tables() -> Engine:
     )
     Index("idx_file_load_log_file_name", file_load_log.c.file_name)
     tables.append(file_load_log)
+    metadata.drop_all(engine, tables=tables)
     metadata.create_all(engine, tables=tables)
     return engine
 

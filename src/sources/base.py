@@ -9,6 +9,7 @@ class FileLoadLog(BaseModel):
     id: Optional[int] = None
     file_name: str
     started_at: DateTime
+    duplicate_skipped: Optional[bool] = False
     archive_copy_started_at: Optional[DateTime] = None
     archive_copy_ended_at: Optional[DateTime] = None
     archive_copy_success: Optional[bool] = None

@@ -476,13 +476,19 @@ class FileProcessor:
                     continue
 
                 file_name = reader.file_path.name
+                log = FileLoadLog(
+                    file_name=file_name,
+                    started_at=pendulum.now(),
+                )
+                log.id = self._log_start(log.file_name, log.started_at)
                 if self._check_duplicate_file(reader.source, file_name):
                     logger.warning(
-                        f"[log_id=N/A] File {file_name} has already been processed - moving to duplicates directory"
+                        f"[log_id={log.id}] File {file_name} has already been processed - moving to duplicates directory"
                     )
                     self._move_to_duplicates(file_path, duplicates_path)
+                    log.duplicate_skipped = True
                     logger.info(
-                        f"[log_id=N/A] Successfully moved duplicate file {file_name} to duplicates directory"
+                        f"[log_id={log.id}] Successfully moved duplicate file {file_name} to duplicates directory"
                     )
                     if reader.source.notification_emails:
                         error_message = (
@@ -500,12 +506,6 @@ class FileProcessor:
                         )
 
                     continue
-
-                log = FileLoadLog(
-                    file_name=file_name,
-                    started_at=pendulum.now(),
-                )
-                log.id = self._log_start(log.file_name, log.started_at)
                 try:
                     log = self._load_records(
                         self._process_file(file_path, archive_path, reader, log),
