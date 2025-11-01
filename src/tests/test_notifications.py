@@ -159,6 +159,34 @@ def test_email_notification_on_duplicate_file(test_csv_file, temp_sqlite_db):
         TEST_SALES.notification_emails = original_emails
 
 
+def test_email_notification_on_audit_failure(csv_duplicate_grain, temp_sqlite_db):
+    """Test that email notification is sent for AuditFailedError."""
+    MASTER_REGISTRY.sources = [TEST_SALES]
+
+    original_emails = TEST_SALES.notification_emails
+    TEST_SALES.notification_emails = ["business@example.com"]
+
+    try:
+        processor = FileProcessor()
+
+        with patch("src.file_processor.send_failure_notification") as mock_email:
+            with tempfile.TemporaryDirectory() as archive_dir:
+                processor.process_files_parallel(
+                    [str(csv_duplicate_grain)], Path(archive_dir)
+                )
+
+            # Verify email was sent
+            assert mock_email.called
+            call_args = mock_email.call_args
+            assert call_args[1]["file_name"] == csv_duplicate_grain.name
+            assert call_args[1]["error_type"] == AuditFailedError.error_type
+            assert call_args[1]["log_id"] is not None
+            assert call_args[1]["recipient_emails"] == ["business@example.com"]
+            assert "Audit checks failed" in call_args[1]["error_message"]
+    finally:
+        TEST_SALES.notification_emails = original_emails
+
+
 def test_slack_notification_on_unexpected_exception(test_csv_file, temp_sqlite_db):
     """Test that unexpected exceptions are captured in results for Slack notification."""
     MASTER_REGISTRY.sources = [TEST_SALES]

@@ -1,0 +1,4 @@
+transaction_id,customer_id,product_sku,quantity,unit_price,total_amount,sale_date,sales_rep
+TXN001,CUST001,SKU001,2,10.50,21.00,2024-01-15,John Doe
+TXN001,CUST002,SKU002,1,25.00,25.00,2024-01-16,Jane Smith
+

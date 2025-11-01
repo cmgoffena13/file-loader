@@ -20,7 +20,7 @@ SALES = CSVSource(
     table_name="transactions",
     grain=["transaction_id"],
     audit_query="""
-        SELECT CASE WHEN COUNT(transaction_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
+        SELECT CASE WHEN COUNT(DISTINCT transaction_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
         FROM {table}
     """,
     delimiter=",",

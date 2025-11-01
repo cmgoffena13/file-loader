@@ -23,7 +23,7 @@ TEST_SALES = CSVSource(
     table_name="transactions",
     grain=["transaction_id"],
     audit_query="""
-        SELECT CASE WHEN COUNT(transaction_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
+        SELECT CASE WHEN COUNT(DISTINCT transaction_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
         FROM {table}
     """,
     delimiter=",",
@@ -48,7 +48,7 @@ TEST_INVENTORY = ExcelSource(
     table_name="products",
     grain=["sku"],
     audit_query="""
-        SELECT CASE WHEN COUNT(sku) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
+        SELECT CASE WHEN COUNT(DISTINCT sku) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
         FROM {table}
     """,
     sheet_name=None,
@@ -73,7 +73,7 @@ TEST_FINANCIAL = JSONSource(
     table_name="ledger_entries",
     grain=["entry_id"],
     audit_query="""
-        SELECT CASE WHEN COUNT(entry_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
+        SELECT CASE WHEN COUNT(DISTINCT entry_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
         FROM {table}
     """,
     array_path="entries.item",

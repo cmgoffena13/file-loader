@@ -22,7 +22,7 @@ FINANCIAL = JSONSource(
     table_name="ledger_entries",
     grain=["entry_id"],
     audit_query="""
-        SELECT CASE WHEN COUNT(entry_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
+        SELECT CASE WHEN COUNT(DISTINCT entry_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
         FROM {table}
     """,
     array_path="entries.item",
