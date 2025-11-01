@@ -540,25 +540,34 @@ class FileProcessor:
                 log.ended_at = pendulum.now()
                 log.success = False
                 self._log_update(log)
-                results.append(log.model_dump(include={"id", "file_name", "success"}))
+                results.append(
+                    {
+                        "id": log.id,
+                        "file_name": file_path.name,
+                        "success": False,
+                        "error_type": e.error_type,
+                        "error_message": str(e),
+                        "error_location": get_error_location(e),
+                    }
+                )
             except Exception as e:
                 log_id = log.id if log else "N/A"
                 logger.error(f"[log_id={log_id}] Failed to process {file_path}: {e}")
-
-                send_slack_notification(
-                    error_message=str(e),
-                    file_name=file_path.name,
-                    log_id=log.id if log else None,
-                    error_location=get_error_location(e),
-                )
 
                 if log:
                     log.ended_at = pendulum.now()
                     log.success = False
                     self._log_update(log)
-                    results.append(
-                        log.model_dump(include={"id", "file_name", "success"})
-                    )
+                results.append(
+                    {
+                        "id": log.id if log else None,
+                        "file_name": file_path.name,
+                        "success": False,
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                        "error_location": get_error_location(e),
+                    }
+                )
         return results
 
     def process_files_parallel(
