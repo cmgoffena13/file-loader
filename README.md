@@ -211,7 +211,7 @@ Create `{source_file}.py` in the new directory with:
        table_name="your_table",               # Database table name
        grain=["field1", "field2"],            # Unique key columns (for MERGE)
        audit_query="""                        # SQL audit query (must return 1=success, 0=failure)
-           SELECT CASE WHEN COUNT(field1) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
+           SELECT CASE WHEN COUNT(DISTINCT field1) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
            FROM {table}
        """,
        validation_error_threshold=0.05,      # Optional: % errors allowed (default: 0.0)
