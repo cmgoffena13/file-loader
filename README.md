@@ -160,12 +160,13 @@ The system uses **parallel processing** with threads to handle multiple files co
 
 The `file_load_log` table automatically tracks detailed metrics for every file processing run:
 
+- **Duplicate Skipped**: Tracking duplicates that are skipped
 - **File Archive Phase**: Archive success/failure status, start/end timestamps
 - **Processing Phase**: Records processed count, validation errors count, start/end timestamps
 - **Staging Phase**: Records loaded into staging table count, start/end timestamps
 - **Audit Phase**: Audit success/failure status, start/end timestamps  
 - **Merge Phase**: Records inserted/updated in target table counts, start/end timestamps
-- **Overall Status**: Success/failure status for the entire file processing run, start/end timestamps
+- **Overall Status**: Success/failure status for the entire run, start/end timestamps, exception error type
 
 All metrics are logged automatically throughout the process, providing complete visibility into each stage of the ETL pipeline.
 
