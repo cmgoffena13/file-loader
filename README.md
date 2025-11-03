@@ -268,7 +268,7 @@ All sources require:
 
 ## How to Add a New Reader
 
-Adding support for a new file format (e.g., `.txt`, `.parquet`, `.xml`) involves creating a reader class and a source configuration, then registering it in the factory.
+Adding support for a new file format (e.g., `.txt`, `.parquet`, `.xml`) involves creating a reader class and a source configuration class, then registering the reader with the factory.
 
 ### Step 1: Create the Reader Class
 

@@ -16,12 +16,5 @@ class SourceRegistry(BaseModel):
             source for source in self.sources if source.matches_file(file_path)
         ]
 
-        if len(matching_sources) == 0:
-            return None
-        elif len(matching_sources) == 1:
-            return matching_sources[0]
-        else:
-            source_names = [s.table_name for s in matching_sources]
-            raise ValueError(
-                f"Multiple sources match file '{file_path}': {source_names}"
-            )
+        source_names = [s.table_name for s in matching_sources]
+        raise ValueError(f"Multiple sources match file '{file_path}': {source_names}")

@@ -11,9 +11,9 @@ from pathlib import Path
 import pendulum
 import pyexcel
 import pytest
-from sqlalchemy import MetaData, text
+from sqlalchemy import MetaData
 
-from src.db import create_tables, get_table_columns
+from src.db import create_tables
 from src.settings import config
 from src.sources.systems.master import MASTER_REGISTRY
 from src.tests.fixtures.source_configs import TEST_FINANCIAL, TEST_INVENTORY, TEST_SALES
