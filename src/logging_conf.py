@@ -40,16 +40,16 @@ def configure_logging() -> None:
     if config.LOGFIRE_TOKEN:
         handlers["logfire_src"] = {
             "class": LogfireLoggingHandler,
-            "level": "DEBUG" if isinstance(config, DevConfig) else "INFO",
+            "level": config.LOG_LEVEL,
         }
         handlers["logfire_sql"] = {
             "class": LogfireLoggingHandler,
-            "level": "INFO",
+            "level": config.LOG_LEVEL,
         }
         loggers["src"]["handlers"].append("logfire_src")
         loggers["sqlalchemy.engine"] = {
             "handlers": ["logfire_sql"],
-            "level": "DEBUG",
+            "level": config.LOG_LEVEL,
             "propagate": False,
         }
 

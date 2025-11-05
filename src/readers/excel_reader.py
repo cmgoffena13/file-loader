@@ -14,6 +14,11 @@ class ExcelReader(BaseReader):
         self.sheet_name = sheet_name
         self.skip_rows = skip_rows
 
+    @property
+    def starting_row_number(self) -> int:
+        """Excel: Row 1 = header (name_columns_by_row=0), so starting row = 2 + skip_rows."""
+        return 2 + self.skip_rows
+
     def read(self) -> Iterator[Dict[str, Any]]:
         records = pyexcel.iget_records(
             file_name=str(self.file_path),

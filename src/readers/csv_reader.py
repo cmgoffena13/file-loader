@@ -17,6 +17,11 @@ class CSVReader(BaseReader):
         self.encoding = encoding
         self.skip_rows = skip_rows
 
+    @property
+    def starting_row_number(self) -> int:
+        """CSV: Row 1 = header, so starting row = 2 + skip_rows."""
+        return 2 + self.skip_rows
+
     def read(self) -> Iterator[Dict[str, Any]]:
         # Use gzip.open() if file is gzipped, otherwise regular open()
         file_opener = gzip.open if self.is_gzipped else open

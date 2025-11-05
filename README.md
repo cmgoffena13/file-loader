@@ -455,6 +455,19 @@ class TXTReader(BaseReader):
         self.delimiter = delimiter  # From Source Config
         self.skip_rows = skip_rows  # From Source Config
 
+    @property
+    def starting_row_number(self) -> int:
+        """Return the starting row number for data rows, accounting for headers and skip_rows.
+        
+        Examples:
+        - CSV/Excel with header: return 2 + self.skip_rows (row 1 = header)
+        - JSON without header: return 1 + self.skip_rows
+        - TXT with header: return 2 + self.skip_rows
+        """
+        # If your format has a header row, return 2 + self.skip_rows
+        # If no header, return 1 + self.skip_rows
+        return 2 + self.skip_rows  # Example: TXT has header row
+
     def read(self) -> Iterator[Dict[str, Any]]:
         """Read file iteratively, yielding dict records."""
         # Validate headers/fields using self._validate_fields(actual_fields)
@@ -473,6 +486,14 @@ class TXTReader(BaseReader):
 - Must accept `file_path: Path` and `source: DataSource`
 - Must call `super().__init__(file_path, source)`
 - Accept any reader-specific parameters needed
+
+**`starting_row_number` (property)**:
+- Must return `int` representing the starting row number for data rows
+- Accounts for header rows and `skip_rows` configuration
+- Used by the file processor to correctly label row numbers in error messages and DLQ records
+- Examples:
+  - Formats with header (CSV, Excel): `return 2 + self.skip_rows` (row 1 = header)
+  - Formats without header (JSON): `return 1 + self.skip_rows`
 
 **`read()`**:
 - Must return `Iterator[Dict[str, Any]]`

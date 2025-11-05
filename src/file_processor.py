@@ -171,7 +171,7 @@ class FileProcessor:
         field_mapping = create_field_mapping(reader)
         reverse_field_mapping = create_reverse_field_mapping(reader)
 
-        for index, record in enumerate(reader, 1):
+        for index, record in enumerate(reader, start=reader.starting_row_number):
             passed = True
             try:
                 validated_record = reader.source.source_model.model_validate(record)
@@ -250,7 +250,7 @@ class FileProcessor:
             if error_rate > threshold:
                 error_msg = (
                     f"Validation error rate ({error_rate:.2%}) exceeds threshold "
-                    f"({threshold:.2%}). "
+                    f"({threshold:.2%}) for file: {file_path.name}. "
                     f"Total Records Processed: {records_processed}, "
                     f"Failed Records: {validation_errors}. "
                     f"Sample validation errors: {sample_validation_errors}"

@@ -15,6 +15,11 @@ class JSONReader(BaseReader):
         self.array_path = array_path
         self.skip_rows = skip_rows
 
+    @property
+    def starting_row_number(self) -> int:
+        """JSON: No header, so starting row = 1 + skip_rows."""
+        return 1 + self.skip_rows
+
     def _convert_decimals_to_float(self, value: Any) -> Any:
         """Convert Decimal values to float for database compatibility."""
         if isinstance(value, Decimal):

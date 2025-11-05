@@ -44,5 +44,11 @@ class BaseReader(ABC):
     def matches_source_type(cls, source_type) -> bool:
         pass
 
+    @property
+    @abstractmethod
+    def starting_row_number(self) -> int:
+        """Return the starting row number for data rows, accounting for headers and skip_rows."""
+        pass
+
     def __iter__(self):
         return self.read()
