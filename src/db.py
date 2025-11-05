@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 from decimal import Decimal
@@ -7,10 +8,12 @@ from typing import Dict, Union, get_args, get_origin
 import xxhash
 from pydantic_extra_types.pendulum_dt import Date, DateTime
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     Column,
     Engine,
+    ForeignKey,
     Index,
     Integer,
     LargeBinary,
@@ -19,14 +22,17 @@ from sqlalchemy import (
     PrimaryKeyConstraint,
     String,
     Table,
+    Text,
     create_engine,
+    text,
 )
 from sqlalchemy import Date as SQLDate
 from sqlalchemy import DateTime as SQLDateTime
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Engine
 
-from src.settings import get_database_config
-from src.sources.base import FileLoadLog
+from src.settings import config, get_database_config
+from src.sources.base import DataSource, FileLoadLog
 from src.sources.systems.master import MASTER_REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -72,11 +78,14 @@ def get_table_columns(source, include_timestamps: bool = True) -> list[Column]:
         sqlalchemy_type = _get_column_type(field_type)
         columns.append(Column(column_name, sqlalchemy_type, nullable=is_nullable))
 
+    # SQLite requires Integer for auto-increment primary keys and foreign keys
+    id_column_type = Integer if config.DRIVERNAME == "sqlite" else BigInteger
+
     columns.extend(
         [
             Column("etl_row_hash", LargeBinary(32), nullable=False),
             Column("source_filename", String, nullable=False),
-            Column("file_load_log_id", BigInteger, nullable=False),
+            Column("file_load_log_id", id_column_type, nullable=False),
         ]
     )
 
@@ -85,6 +94,118 @@ def get_table_columns(source, include_timestamps: bool = True) -> list[Column]:
         columns.append(Column("etl_updated_at", SQLDateTime, nullable=True))
 
     return columns
+
+
+def _get_json_column_type(engine: Engine):
+    drivername = config.DRIVERNAME
+
+    json_column_mapping = {
+        "postgresql": JSONB,
+        "mysql": JSON,
+        "mssql": String(4000),
+        "sqlite": Text,
+    }
+
+    for dialect_key, column_type in json_column_mapping.items():
+        if dialect_key == drivername:
+            return column_type
+
+    logger.warning(
+        f"Unknown database dialect '{drivername}', defaulting to JSON: {engine.url}"
+    )
+    return JSON
+
+
+def create_merge_sql(
+    stage_table_name: str,
+    target_table_name: str,
+    join_condition: str,
+    columns: list[str],
+    update_columns: list[str],
+    grain: list[str],
+    now_iso: str,
+) -> str:
+    drivername = config.DRIVERNAME
+    insert_columns = ", ".join(columns) + ", etl_created_at"
+    select_columns = ", ".join([f"stage.{col}" for col in columns]) + f", '{now_iso}'"
+
+    if drivername == "mysql":
+        # MySQL uses INSERT ... ON DUPLICATE KEY UPDATE
+        update_on_duplicate_parts = []
+        for col in update_columns:
+            update_on_duplicate_parts.append(f"{col} = stage.{col}")
+        # Only update etl_updated_at if data actually changed
+        update_on_duplicate_parts.append(
+            f"etl_updated_at = IF(stage.etl_row_hash != {target_table_name}.etl_row_hash, '{now_iso}', {target_table_name}.etl_updated_at)"
+        )
+        update_on_duplicate = ", ".join(update_on_duplicate_parts)
+
+        merge_sql = f"""
+            INSERT INTO {target_table_name} ({insert_columns})
+            SELECT {select_columns}
+            FROM {stage_table_name} AS stage
+            ON DUPLICATE KEY UPDATE
+                {update_on_duplicate}
+        """
+    elif drivername == "sqlite":
+        # SQLite uses INSERT ... ON CONFLICT ... DO UPDATE
+        # Note: Must include WHERE clause to resolve parser ambiguity with ON CONFLICT
+        conflict_columns = ", ".join(grain)
+        update_set_parts = []
+        for col in update_columns:
+            update_set_parts.append(f"{col} = excluded.{col}")
+        # Only update etl_updated_at if data actually changed
+        # In SQLite ON CONFLICT DO UPDATE, use unqualified column names for existing table values
+        update_set_parts.append(
+            f"etl_updated_at = CASE WHEN excluded.etl_row_hash != etl_row_hash THEN excluded.etl_updated_at ELSE etl_updated_at END"
+        )
+        update_set = ", ".join(update_set_parts)
+
+        merge_sql = f"""
+            INSERT INTO {target_table_name} ({insert_columns})
+            SELECT {select_columns}
+            FROM {stage_table_name} AS stage
+            WHERE 1=1
+            ON CONFLICT({conflict_columns})
+            DO UPDATE SET
+                {update_set}
+        """
+    else:
+        # PostgreSQL and SQL Server use MERGE INTO
+        update_set = ", ".join([f"{col} = stage.{col}" for col in update_columns])
+        update_set += f", etl_updated_at = '{now_iso}'"
+        insert_values = ", ".join([f"stage.{col}" for col in columns])
+        insert_values += f", '{now_iso}'"
+
+        merge_sql = f"""
+            MERGE INTO {target_table_name} AS target
+            USING {stage_table_name} AS stage
+            ON {join_condition}
+            WHEN MATCHED AND stage.etl_row_hash != target.etl_row_hash THEN
+                UPDATE SET {update_set}
+            WHEN NOT MATCHED THEN
+                INSERT ({insert_columns})
+                VALUES ({insert_values})
+        """
+
+    return merge_sql
+
+
+def calculate_batch_size(source: DataSource) -> int:
+    """If SQL Server, calculate batch size based on 1000 values per INSERT limit."""
+    drivername = config.DRIVERNAME
+    if "mssql" in drivername:
+        # SQL Server has 1000 values per INSERT limit
+        max_values = 1000
+        column_count = (
+            len(source.source_model.model_fields) + 2
+        )  # +2 for ETL metadata columns (etl_row_hash, source_filename)
+        # Calculate max rows: (max_values / columns_per_row) - 1 for safety margin
+        max_rows = (max_values // column_count) - 1
+        return max(1, min(max_rows, config.BATCH_SIZE))
+
+    # For other databases, use configured batch size
+    return config.BATCH_SIZE
 
 
 def create_tables() -> Engine:
@@ -123,10 +244,13 @@ def create_tables() -> Engine:
         Index(f"idx_{source.table_name}_source_filename", table.c.source_filename)
         tables.append(table)
 
+    # SQLite requires Integer for auto-increment primary keys
+    id_column_type = Integer if config.DRIVERNAME == "sqlite" else BigInteger
+
     file_load_log = Table(
         "file_load_log",
         metadata,
-        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("id", id_column_type, primary_key=True, autoincrement=True),
         Column("file_name", String, nullable=False),
         Column("started_at", SQLDateTime, nullable=False),
         Column("duplicate_skipped", Boolean, nullable=True),
@@ -162,8 +286,53 @@ def create_tables() -> Engine:
     )
     Index("idx_file_load_log_file_name", file_load_log.c.file_name)
     tables.append(file_load_log)
+
+    # Dead Letter Queue table for validation failures
+    # Use appropriate JSON column type based on database backend
+    json_column_type = _get_json_column_type(engine)
+
+    file_load_dlq = Table(
+        "file_load_dlq",
+        metadata,
+        Column("id", id_column_type, primary_key=True, autoincrement=True),
+        Column("source_filename", String, nullable=False),
+        Column("file_row_number", Integer, nullable=False),
+        Column("file_record_data", json_column_type, nullable=False),
+        Column("validation_errors", json_column_type, nullable=False),
+        Column(
+            "file_load_log_id",
+            id_column_type,
+            ForeignKey("file_load_log.id"),
+            nullable=False,
+        ),
+        Column("target_table_name", String, nullable=False),
+        Column("failed_at", SQLDateTime, nullable=False),
+    )
+    Index("idx_dlq_file_load_log_id", file_load_dlq.c.file_load_log_id)
+    Index(
+        "idx_dlq_source_filename", file_load_dlq.c.source_filename, file_load_dlq.c.id
+    )
+    tables.append(file_load_dlq)
+    metadata.drop_all(engine, tables=[file_load_dlq])
     metadata.create_all(engine, tables=tables)
     return engine
+
+
+def get_delete_dlq_sql() -> str:
+    drivername = config.DRIVERNAME
+
+    if drivername == "postgresql":
+        delete_sql = "DELETE FROM file_load_dlq WHERE source_filename = :file_name"
+    elif drivername == "mysql":
+        delete_sql = "DELETE FROM file_load_dlq WHERE source_filename = :file_name"
+    elif drivername == "mssql":
+        delete_sql = "DELETE FROM file_load_dlq WHERE source_filename = :file_name"
+    elif drivername == "sqlite":
+        delete_sql = "DELETE FROM file_load_dlq WHERE source_filename = :file_name"
+    else:
+        raise ValueError(f"Unsupported database dialect: {drivername}")
+
+    return delete_sql
 
 
 def create_row_hash(record: Dict[str, str]) -> bytes:

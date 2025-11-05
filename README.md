@@ -15,6 +15,9 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
   - [File Processing Pipeline](#file-processing-pipeline)
     - [Failure Notifications](#failure-notifications)
   - [Detailed Logging](#detailed-logging)
+  - [Dead Letter Queue](#dead-letter-queue)
+    - [DLQ Report](#dlq-report)
+    - [DLQ Cleanup on Reprocessing](#dlq-cleanup-on-reprocessing)
 - [How to Add a New Source](#how-to-add-a-new-source)
   - [Step 1: Create the System Directory (if new system)](#step-1-create-the-system-directory-if-new-system)
   - [Step 2: Create the Source File](#step-2-create-the-source-file)
@@ -138,7 +141,7 @@ The system uses **parallel processing** with threads to handle multiple files co
 
 9. **Iterative Row Processing**: Rows in the file are processed iteratively using generators for memory efficiency - handles large files without loading everything into memory
 
-10. **Record Validation**: Each record from the file is validated against the Pydantic model schema. Records that fail validation are logged but **do not** get inserted into the staging table. A `validation_error_threshold` can be configured per source - if the error rate (validation_errors / records_processed) exceeds the threshold, processing stops and the file is marked as failed. Default validation_error_threshold is zero.
+10. **Record Validation**: Each record from the file is validated against the Pydantic model schema. Records that fail validation **do not** get inserted into the staging table. 
 
 11. **Staging Table Creation**: A unique staging table (`stage_{filename}`) is automatically created for this file, enabling parallel processing of multiple files targeting the same destination table
 
@@ -148,11 +151,13 @@ The system uses **parallel processing** with threads to handle multiple files co
 
 14. **MERGE Operation**: Data from the staging table is merged into the target table based on grain columns, handling inserts and updates appropriately
 
-15. **Cleanup**: The staging table is dropped and the original file is deleted from the directory. The archived copy remains for recovery if needed (simply move from archive back to directory to reprocess). If bad data got into the target table, then DELETE from the target table where `source_filename = {file_name}` and then reprocess.
+15. **DLQ Cleanup**: If this is a reprocessing run (DLQ records exist from a previous processing run for this file), all DLQ records for that filename are automatically deleted after a successful merge. This keeps the DLQ table clean by removing records that have been successfully reprocessed.
+
+16. **Cleanup**: The staging table is dropped and the original file is deleted from the directory. The archived copy remains for recovery if needed (simply move from archive back to directory to reprocess). If bad data got into the target table, then DELETE from the target table where `source_filename = {file_name}` and then reprocess.
 
 **Note on Duplicate Files**: Files that have already been processed are detected early (step 2) and moved to the `DUPLICATE_FILES_PATH` directory. This prevents directory clutter and accidental data overwrites. To reprocess a duplicate file, first DELETE the existing records from the target table where `source_filename = {file_name}`, then move the file from the duplicates directory back to `DIRECTORY_PATH`.
 
-16. **Failure Notifications**: 
+17. **Failure Notifications**: 
     - **Email**: If `notification_emails` is configured for a source, email notifications are automatically sent to business owners when files fail (missing headers, missing columns, validation threshold exceeded, audit failures, duplicate files). The data team (configured via `DATA_TEAM_EMAIL`) is always CC'd. Notifications include error details, log_id for reference, and sample validation errors when applicable.
     - **Slack**: Internal processing errors (code bugs, database connection failures, system exceptions) are automatically sent to Slack if `SLACK_WEBHOOK_URL` is configured. These are separate from file-related issues and include system information.
 
@@ -169,6 +174,53 @@ The `file_load_log` table automatically tracks detailed metrics for every file p
 - **Overall Status**: Success/failure status for the entire run, start/end timestamps, exception error type
 
 All metrics are logged automatically throughout the process, providing complete visibility into each stage of the ETL pipeline.
+
+### Dead Letter Queue
+
+The `file_load_dlq` automatically captures all records that fail validation during file processing:
+
+- **`id`**: Auto-incrementing primary key
+- **`source_filename`**: The name of the source file
+- **`file_row_number`**: The row number in the source file where the error occurred
+- **`file_record_data`**: Contains only the relevant fields from the failed record in JSON:
+  - Fields that failed validation
+  - Grain fields (identifiers) for record identification
+- **`validation_errors`**: Formatted validation error messages as JSON, containing:
+  - `column_name`: The field name that failed validation (source file column name)
+  - `column_value`: The invalid value that was provided
+  - `error_type`: The type of validation error (e.g., `int_parsing`, `date_parsing`)
+  - `error_msg`: The error message (lowercased)
+  - Multiple errors are formatted as an array: `[{column_name: quantity, column_value: not_a_number, error_type: int_parsing, error_msg: ...}, ...]`
+- **`file_load_log_id`**: Foreign key reference to `file_load_log.id` for tracking which processing run this error belongs to
+- **`target_table_name`**: The target table name this record was intended for
+- **`failed_at`**: Timestamp when the record failed validation
+
+The table includes indexes on `file_load_log_id` and `source_filename` for efficient querying.
+
+#### DLQ Report
+
+I recommend creating an accessible report off of the Dead Letter Queue table so that business stakeholders can see validation errors and fix them without any intervention. Utilize the below pattern for efficiency if possible:
+```SQL
+;WITH CTE AS (
+  SELECT
+  id
+  FROM file_load_dlq
+  WHERE source_filename = {selected file name}
+)
+SELECT
+dlq.file_row_number,
+dlq.file_record_data,
+dlq.validation_errors,
+dlq.failed_at
+FROM file_load_dlq AS dlq
+INNER JOIN CTE
+  ON CTE.id = dlq.id
+ORDER BY file_row_number
+```
+
+#### DLQ Cleanup on Reprocessing
+
+When a file is reprocessed and the merge succeeds, the system automatically detects if DLQ records exist from a previous processing run. If they do, all DLQ records for that filename are deleted to keep the DLQ table clean. This ensures that successfully reprocessed records don't clutter the DLQ table.
 
 ## How to Add a New Source
 

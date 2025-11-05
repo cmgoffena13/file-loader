@@ -5,7 +5,6 @@ from unittest.mock import patch
 
 import pendulum
 import pytest
-from sqlalchemy import text
 
 from src.exceptions import (
     AuditFailedError,
@@ -82,10 +81,9 @@ def test_email_notification_on_duplicate_file(test_csv_file, temp_sqlite_db):
         with tempfile.TemporaryDirectory() as archive_dir:
             processor = FileProcessor()
 
-            # First processing
+            # First processing - should merge records into target table
             processor.process_files_parallel([str(test_csv_file)], Path(archive_dir))
 
-            # Manually insert record to simulate duplicate
             # Recreate the file (it was deleted after first processing)
             with open(test_csv_file, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
@@ -126,24 +124,8 @@ def test_email_notification_on_duplicate_file(test_csv_file, temp_sqlite_db):
                     ]
                 )
 
-            with processor.Session() as session:
-                session.execute(
-                    text(f"""
-                        INSERT INTO transactions 
-                        (transaction_id, customer_id, product_sku, quantity, unit_price, 
-                         total_amount, sale_date, sales_rep, etl_row_hash, source_filename, 
-                         file_load_log_id, etl_created_at)
-                        VALUES 
-                        ('TEST001', 'CUST001', 'SKU001', 1, 10.0, 10.0, '2024-01-01', 'TEST', 
-                         X'0000000000000000000000000000000000000000000000000000000000000000',
-                         :filename, 1, :created_at)
-                    """),
-                    {
-                        "filename": test_csv_file.name,
-                        "created_at": pendulum.now().to_iso8601_string(),
-                    },
-                )
-                session.commit()
+            # First processing should have merged records into target table with source_filename
+            # No need for manual insert - merge handled it
 
             # Second processing - should detect duplicate
             with patch("src.file_processor.send_failure_notification") as mock_email:

@@ -1,5 +1,4 @@
 import os
-from unittest.mock import patch
 
 # Needs to happen before local imports
 os.environ["ENV_STATE"] = "test"
@@ -122,25 +121,6 @@ def temp_sqlite_db(tmp_path):
             metadata = MetaData()
             metadata.reflect(bind=engine)
             metadata.drop_all(bind=engine)
-
-
-@pytest.fixture(autouse=True)
-def mock_sqlite_merge():
-    """Mock merge operation for SQLite tests - just sets timestamps without actually merging."""
-
-    def sqlite_merge(
-        self, stage_table_name, target_table_name, source, source_filename, log
-    ):
-        """No-op merge for tests - just sets merge timestamps."""
-        log.merge_started_at = pendulum.now()
-        log.target_inserts = log.records_stage_loaded or 0
-        log.target_updates = 0
-        log.merge_ended_at = pendulum.now()
-        log.merge_success = True
-        return log
-
-    with patch("src.file_processor.FileProcessor._merge_stage_to_target", sqlite_merge):
-        yield
 
 
 @pytest.fixture
@@ -526,6 +506,85 @@ def csv_validation_errors(temp_directory):
                 "25.00",
                 "invalid_date",  # Invalid
                 "Jane Smith",
+            ]
+        )
+
+    yield file_path
+
+    # Teardown
+    if file_path.exists():
+        file_path.unlink()
+
+
+@pytest.fixture
+def csv_mixed_valid_invalid(temp_directory):
+    """Create a CSV file with both valid and invalid records for DLQ testing."""
+    file_path = temp_directory / "sales_mixed.csv"
+
+    with open(file_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                "transaction_id",
+                "customer_id",
+                "product_sku",
+                "quantity",
+                "unit_price",
+                "total_amount",
+                "sale_date",
+                "sales_rep",
+            ]
+        )
+        # Valid record
+        writer.writerow(
+            [
+                "TXN001",
+                "CUST001",
+                "SKU001",
+                "2",
+                "10.50",
+                "21.00",
+                "2024-01-15",
+                "John Doe",
+            ]
+        )
+        # Invalid quantity (should be int, got string)
+        writer.writerow(
+            [
+                "TXN002",
+                "CUST002",
+                "SKU002",
+                "not_a_number",  # Invalid
+                "25.00",
+                "50.00",
+                "2024-01-16",
+                "Jane Smith",
+            ]
+        )
+        # Valid record
+        writer.writerow(
+            [
+                "TXN003",
+                "CUST003",
+                "SKU003",
+                "3",
+                "15.00",
+                "45.00",
+                "2024-01-17",
+                "Bob Johnson",
+            ]
+        )
+        # Invalid date format
+        writer.writerow(
+            [
+                "TXN004",
+                "CUST004",
+                "SKU004",
+                "1",
+                "30.00",
+                "30.00",
+                "invalid_date",  # Invalid
+                "Alice Brown",
             ]
         )
 

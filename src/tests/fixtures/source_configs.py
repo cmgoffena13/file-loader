@@ -31,6 +31,21 @@ TEST_SALES = CSVSource(
     skip_rows=0,
 )
 
+TEST_SALES_WITH_DLQ = CSVSource(
+    file_pattern="sales_*.csv",
+    source_model=TestTransaction,
+    table_name="transactions",
+    grain=["transaction_id"],
+    audit_query="""
+        SELECT CASE WHEN COUNT(DISTINCT transaction_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
+        FROM {table}
+    """,
+    delimiter=",",
+    encoding="utf-8",
+    skip_rows=0,
+    validation_error_threshold=1.0,  # Allow 100% error rate to capture all errors in DLQ
+)
+
 
 class TestProduct(TableModel):
     sku: str = Field(alias="SKU")

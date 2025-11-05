@@ -1,18 +1,19 @@
+import csv
+import json
 import shutil
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-import pendulum
 import pytest
-from sqlalchemy import text
+from sqlalchemy import MetaData, Table, select
 
 from src.exceptions import MissingColumnsError, MissingHeaderError
 from src.file_processor import FileProcessor
 from src.readers.csv_reader import CSVReader
 from src.settings import config
 from src.sources.systems.master import MASTER_REGISTRY
-from src.tests.fixtures.source_configs import TEST_SALES
+from src.tests.fixtures.source_configs import TEST_SALES, TEST_SALES_WITH_DLQ
 
 
 def test_csv_missing_header_raises_error(csv_missing_header):
@@ -127,27 +128,8 @@ def test_csv_duplicate_file_moved_to_duplicates(test_csv_file, temp_sqlite_db):
             assert len(results) == 1
             assert results[0]["success"] is True
 
-            # Since merge is mocked, manually insert a record to simulate duplicate detection
-            # This allows _check_duplicate_file to find it on the second processing
-            with processor.Session() as session:
-                session.execute(
-                    text(f"""
-                        INSERT INTO transactions 
-                        (transaction_id, customer_id, product_sku, quantity, unit_price, 
-                         total_amount, sale_date, sales_rep, etl_row_hash, source_filename, 
-                         file_load_log_id, etl_created_at)
-                        VALUES 
-                        ('TEST001', 'CUST001', 'SKU001', 1, 10.0, 10.0, '2024-01-01', 'TEST', 
-                         X'0000000000000000000000000000000000000000000000000000000000000000',
-                         :filename, :log_id, :created_at)
-                    """),
-                    {
-                        "filename": test_csv_file.name,
-                        "log_id": results[0]["id"],
-                        "created_at": pendulum.now().to_iso8601_string(),
-                    },
-                )
-                session.commit()
+            # First processing should have merged records into target table with source_filename
+            # No need for manual insert - merge handled it
 
             # Find the archived file
             archive_path = Path(archive_dir)
@@ -194,3 +176,258 @@ def test_csv_duplicate_file_moved_to_duplicates(test_csv_file, temp_sqlite_db):
             # Cleanup duplicates directory
             if duplicates_dir.exists():
                 shutil.rmtree(duplicates_dir)
+
+
+def test_csv_dead_letter_queue_stores_validation_errors(
+    csv_mixed_valid_invalid, temp_sqlite_db
+):
+    """Test that validation errors are stored in the dead letter queue."""
+
+    # Create a temporary archive directory
+    with tempfile.TemporaryDirectory() as archive_dir:
+        MASTER_REGISTRY.sources = [TEST_SALES_WITH_DLQ]
+
+        processor = FileProcessor()
+
+        # Process file with mixed valid/invalid records
+        archive_path_obj = Path(archive_dir)
+        results = processor.process_files_parallel(
+            [str(csv_mixed_valid_invalid)], archive_path_obj
+        )
+
+        # Verify that processing succeeded (file was processed)
+        assert len(results) == 1
+        assert results[0]["success"] is True
+
+        log_id = results[0]["id"]
+
+        # Verify valid records are in the target table
+        with processor.Session() as session:
+            # Reflect the transactions table
+            metadata = MetaData()
+            metadata.reflect(bind=processor.engine, only=["transactions"])
+            transactions_table = Table(
+                "transactions", metadata, autoload_with=processor.engine
+            )
+
+            # Check transactions table for valid records
+            valid_records = session.execute(
+                select(transactions_table).where(
+                    transactions_table.c.source_filename == "sales_mixed.csv"
+                )
+            ).fetchall()
+
+            # Should have 2 valid records (TXN001 and TXN003)
+            assert len(valid_records) == 2
+            transaction_ids = {row[0] for row in valid_records}
+            assert "TXN001" in transaction_ids
+            assert "TXN003" in transaction_ids
+
+            # Verify invalid records are in the DLQ table
+            dlq_table = processor._get_file_load_dlq()
+            dlq_records = session.execute(
+                select(dlq_table).where(
+                    dlq_table.c.file_load_log_id == log_id,
+                    dlq_table.c.source_filename == "sales_mixed.csv",
+                )
+            ).fetchall()
+
+            # Should have 2 invalid records (TXN002 and TXN004)
+            assert len(dlq_records) == 2
+
+            # Verify DLQ record structure and content
+            dlq_row_numbers = {row.file_row_number for row in dlq_records}
+            assert 2 in dlq_row_numbers  # TXN002 (invalid quantity)
+            assert 4 in dlq_row_numbers  # TXN004 (invalid date)
+
+            for dlq_record in dlq_records:
+                # Verify required fields are present
+                assert dlq_record.file_record_data is not None
+                assert dlq_record.validation_errors is not None
+                assert dlq_record.file_row_number > 0
+                assert dlq_record.source_filename == "sales_mixed.csv"
+                assert dlq_record.file_load_log_id == log_id
+                assert dlq_record.target_table_name == "transactions"
+                assert dlq_record.failed_at is not None
+
+                # Verify file_record_data contains the original data
+                # For SQLite, file_record_data is stored as TEXT (JSON string)
+                raw_data = json.loads(dlq_record.file_record_data)
+                assert "transaction_id" in raw_data
+
+                # Row 2 should have TXN002, Row 4 should have TXN004
+                if dlq_record.file_row_number == 2:
+                    assert raw_data["transaction_id"] == "TXN002"
+                    assert "not_a_number" in str(raw_data.get("quantity", ""))
+                elif dlq_record.file_row_number == 4:
+                    assert raw_data["transaction_id"] == "TXN004"
+                    assert "invalid_date" in str(raw_data.get("sale_date", ""))
+
+            # Verify no records with TXN002 or TXN004 in transactions table
+            invalid_in_target = session.execute(
+                select(transactions_table).where(
+                    transactions_table.c.transaction_id.in_(["TXN002", "TXN004"]),
+                    transactions_table.c.source_filename == "sales_mixed.csv",
+                )
+            ).fetchall()
+            assert len(invalid_in_target) == 0, (
+                "Invalid records should not be in target table"
+            )
+
+
+def test_csv_dead_letter_queue_deletes_records_after_reprocessing(
+    csv_mixed_valid_invalid, temp_sqlite_db, temp_directory
+):
+    """Test that DLQ records are deleted after successful reprocessing of a file."""
+    # Create a temporary archive directory
+    with tempfile.TemporaryDirectory() as archive_dir:
+        MASTER_REGISTRY.sources = [TEST_SALES_WITH_DLQ]
+
+        processor = FileProcessor()
+        archive_path_obj = Path(archive_dir)
+
+        # First processing: file with validation errors
+        results = processor.process_files_parallel(
+            [str(csv_mixed_valid_invalid)], archive_path_obj
+        )
+
+        assert len(results) == 1
+        assert results[0]["success"] is True
+        first_log_id = results[0]["id"]
+
+        # Verify DLQ records exist from first run
+        with processor.Session() as session:
+            dlq_table = processor._get_file_load_dlq()
+            first_dlq_records = session.execute(
+                select(dlq_table).where(
+                    dlq_table.c.source_filename == "sales_mixed.csv"
+                )
+            ).fetchall()
+
+            # Should have 2 DLQ records from first run
+            assert len(first_dlq_records) == 2, (
+                "Should have 2 DLQ records from first processing"
+            )
+
+        # Create a corrected version of the file with all valid records
+        corrected_file = temp_directory / "sales_mixed.csv"
+        with open(corrected_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    "transaction_id",
+                    "customer_id",
+                    "product_sku",
+                    "quantity",
+                    "unit_price",
+                    "total_amount",
+                    "sale_date",
+                    "sales_rep",
+                ]
+            )
+            # All valid records (fixing the invalid ones)
+            writer.writerow(
+                [
+                    "TXN001",
+                    "CUST001",
+                    "SKU001",
+                    "2",
+                    "10.50",
+                    "21.00",
+                    "2024-01-15",
+                    "John Doe",
+                ]
+            )
+            writer.writerow(
+                [
+                    "TXN002",
+                    "CUST002",
+                    "SKU002",
+                    "2",
+                    "25.00",
+                    "50.00",
+                    "2024-01-16",
+                    "Jane Smith",
+                ]
+            )  # Fixed quantity
+            writer.writerow(
+                [
+                    "TXN003",
+                    "CUST003",
+                    "SKU003",
+                    "3",
+                    "15.00",
+                    "45.00",
+                    "2024-01-17",
+                    "Bob Johnson",
+                ]
+            )
+            writer.writerow(
+                [
+                    "TXN004",
+                    "CUST004",
+                    "SKU004",
+                    "1",
+                    "30.00",
+                    "30.00",
+                    "2024-01-18",
+                    "Alice Brown",
+                ]
+            )  # Fixed date
+
+        # Delete target records to allow reprocessing (simulating fixing data and reprocessing)
+        with processor.Session() as session:
+            metadata = MetaData()
+            metadata.reflect(bind=processor.engine, only=["transactions"])
+            transactions_table = Table(
+                "transactions", metadata, autoload_with=processor.engine
+            )
+            delete_stmt = transactions_table.delete().where(
+                transactions_table.c.source_filename == "sales_mixed.csv"
+            )
+            session.execute(delete_stmt)
+            session.commit()
+
+        # Second processing: reprocess with corrected file
+        results = processor.process_files_parallel(
+            [str(corrected_file)], archive_path_obj
+        )
+
+        assert len(results) == 1
+        assert results[0]["success"] is True
+        second_log_id = results[0]["id"]
+
+        # Verify DLQ records are deleted after successful reprocessing
+        with processor.Session() as session:
+            dlq_table = processor._get_file_load_dlq()
+            remaining_dlq_records = session.execute(
+                select(dlq_table).where(
+                    dlq_table.c.source_filename == "sales_mixed.csv"
+                )
+            ).fetchall()
+
+            # DLQ records should be deleted after successful merge
+            assert len(remaining_dlq_records) == 0, (
+                "DLQ records should be deleted after successful reprocessing"
+            )
+
+            # Verify all records are now in the target table
+            metadata = MetaData()
+            metadata.reflect(bind=processor.engine, only=["transactions"])
+            transactions_table = Table(
+                "transactions", metadata, autoload_with=processor.engine
+            )
+
+            all_records = session.execute(
+                select(transactions_table).where(
+                    transactions_table.c.source_filename == "sales_mixed.csv"
+                )
+            ).fetchall()
+
+            # Should have all 4 records (including the previously invalid ones)
+            assert len(all_records) == 4
+            transaction_ids = {row[0] for row in all_records}
+            assert "TXN001" in transaction_ids
+            assert "TXN002" in transaction_ids  # Now valid
+            assert "TXN003" in transaction_ids
+            assert "TXN004" in transaction_ids  # Now valid

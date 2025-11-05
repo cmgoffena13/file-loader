@@ -1,0 +1,10 @@
+transaction_id,customer_id,product_sku,quantity,unit_price,total_amount,sale_date,sales_rep
+TXN001,CUST001,SKU001,5,10.50,52.50,2024-01-15,John Doe
+TXN002,CUST002,SKU002,not_a_number,25.00,50.00,2024-01-16,Jane Smith
+TXN003,CUST003,SKU003,3,15.00,45.00,2024-01-17,Bob Johnson
+TXN004,CUST004,SKU004,1,invalid_price,30.00,2024-01-18,Alice Brown
+TXN005,CUST005,SKU005,2,20.00,40.00,invalid_date,Charlie Wilson
+TXN006,CUST006,SKU006,4,12.50,50.00,2024-01-20,Diana Prince
+TXN007,CUST007,SKU007,missing_quantity,18.00,36.00,2024-01-21,Edward Norton
+TXN008,CUST008,SKU008,1,22.00,22.00,2024-01-22,Fiona Apple
+

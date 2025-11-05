@@ -1,3 +1,4 @@
+import json
 import logging
 import multiprocessing
 import shutil
@@ -7,13 +8,16 @@ from typing import Any, Dict, Iterator, List, Optional
 
 import pendulum
 from pydantic import ValidationError
-from sqlalchemy import MetaData, Table, insert, text, update
+from sqlalchemy import MetaData, Table, insert, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.db import (
+    calculate_batch_size,
+    create_merge_sql,
     create_row_hash,
     create_stage_table,
     create_tables,
+    get_delete_dlq_sql,
     get_table_columns,
 )
 from src.exceptions import (
@@ -28,6 +32,13 @@ from src.retry import get_error_location, retry
 from src.settings import config
 from src.sources.base import DataSource, FileLoadLog
 from src.sources.systems.master import MASTER_REGISTRY
+from src.utils import (
+    create_field_mapping,
+    create_reverse_field_mapping,
+    extract_failed_field_names,
+    extract_validation_error_message,
+    get_field_alias,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +51,7 @@ class FileProcessor:
         self.thread_pool = ThreadPoolExecutor(max_workers=multiprocessing.cpu_count())
         self._metadata = MetaData()
         self._file_load_log: Optional[Table] = None
+        self._file_load_dlq: Optional[Table] = None
 
     def _get_file_load_log(self) -> Table:
         if self._file_load_log is None:
@@ -48,6 +60,14 @@ class FileProcessor:
                 "file_load_log", self._metadata, autoload_with=self.engine
             )
         return self._file_load_log
+
+    def _get_file_load_dlq(self) -> Table:
+        if self._file_load_dlq is None:
+            self._metadata.reflect(bind=self.engine, only=["file_load_dlq"])
+            self._file_load_dlq = Table(
+                "file_load_dlq", self._metadata, autoload_with=self.engine
+            )
+        return self._file_load_dlq
 
     @retry()
     def _log_start(self, file_name: str, started_at) -> int:
@@ -128,15 +148,6 @@ class FileProcessor:
             f"Moved duplicate file {file_path.name} to duplicates directory: {destination}"
         )
 
-    def _create_field_mapping(self, reader: BaseReader) -> Dict[str, str]:
-        field_mapping = {}
-        for field_name, field_info in reader.source.source_model.model_fields.items():
-            if field_info.alias:
-                field_mapping[field_info.alias.lower()] = field_name
-            else:
-                field_mapping[field_name.lower()] = field_name
-        return field_mapping
-
     def _process_file(
         self, file_path: Path, archive_path: Path, reader: BaseReader, log: FileLoadLog
     ) -> Iterator[Dict[str, Any]]:
@@ -146,40 +157,77 @@ class FileProcessor:
         records_processed = 0
         validation_errors = 0
         sample_validation_errors = []
+        result = tuple()
 
-        field_mapping = self._create_field_mapping(reader)
+        field_mapping = create_field_mapping(reader)
+        reverse_field_mapping = create_reverse_field_mapping(reader)
 
         for index, record in enumerate(reader, 1):
+            passed = True
             try:
                 reader.source.source_model.model_validate(record)
             except ValidationError as e:
                 validation_errors += 1
                 records_processed += 1
-                logger.warning(
+                logger.debug(
                     f"[log_id={log.id}] Validation failed for row {index} for file {file_path.name}: {e}"
                 )
+                error_details = (
+                    e.errors() if hasattr(e, "errors") else [{"msg": str(e)}]
+                )
+                failed_field_names = extract_failed_field_names(
+                    error_details, reader.source.grain
+                )
+
+                # Filter record to only include failed fields and grain fields
+                record = {
+                    alias_key: value
+                    for alias_key, value in record.items()
+                    if (field_name := field_mapping.get(alias_key.lower()))
+                    and field_name in failed_field_names
+                }
+
                 if len(sample_validation_errors) <= 5:
-                    record["row_number"] = (
-                        index  # Add Row Number to sample for debugging
+                    sample_validation_errors.append(
+                        {
+                            "file_row_number": index,
+                            "validation_error": extract_validation_error_message(
+                                error_details, reverse_field_mapping
+                            ),
+                            "record": record,
+                        }
                     )
-                    record["validation_error"] = (
-                        e  # Add Validation Error to sample for debugging
-                    )
-                    sample_validation_errors.append(record)
-                continue
+                passed = False
 
-            # Rename alias keys to column names and trim unneeded columns
-            record = {
-                field_mapping[k.lower()]: v
-                for k, v in record.items()
-                if k.lower() in field_mapping
-            }
+            if passed:
+                # Rename alias keys to column names and trim unneeded columns
+                record = {
+                    field_mapping[k.lower()]: v
+                    for k, v in record.items()
+                    if k.lower() in field_mapping
+                }
 
-            record["etl_row_hash"] = create_row_hash(record)
-            record["source_filename"] = file_path.name
-            record["file_load_log_id"] = log.id
+                record["etl_row_hash"] = create_row_hash(record)
+                record["source_filename"] = file_path.name
+                record["file_load_log_id"] = log.id
+                result = (record, True)
+            else:
+                record = {
+                    "file_record_data": self._serialize_json_for_dlq_table(record),
+                    "validation_errors": self._serialize_json_for_dlq_table(
+                        extract_validation_error_message(
+                            error_details, reverse_field_mapping
+                        )
+                    ),
+                    "file_row_number": index,
+                    "source_filename": file_path.name,
+                    "file_load_log_id": log.id,
+                    "target_table_name": reader.source.table_name,
+                    "failed_at": pendulum.now(),
+                }
+                result = (record, False)
 
-            yield record
+            yield result
             records_processed += 1
 
         log.records_processed = records_processed
@@ -193,17 +241,20 @@ class FileProcessor:
                 error_msg = (
                     f"Validation error rate ({error_rate:.2%}) exceeds threshold "
                     f"({threshold:.2%}). "
-                    f"Sample errors: {sample_validation_errors}"
+                    f"Total Records Processed: {records_processed}, "
+                    f"Failed Records: {validation_errors}. "
+                    f"Sample validation errors: {sample_validation_errors}"
                 )
                 raise ValidationThresholdExceededError(error_msg)
 
         log.processing_ended_at = pendulum.now()
         log.processing_success = True
-        return log
 
-    @retry()
     def _load_records(
-        self, records: Iterator[Dict[str, Any]], reader: BaseReader, log: FileLoadLog
+        self,
+        results: Iterator[tuple[Dict[str, Any], bool]],
+        reader: BaseReader,
+        log: FileLoadLog,
     ) -> FileLoadLog:
         log.stage_load_started_at = pendulum.now()
         source_filename = reader.file_path.name
@@ -214,35 +265,65 @@ class FileProcessor:
         )
 
         # If not SQL Server, uses configured batch size
-        batch_size = self._calculate_batch_size(reader.source)
-
+        batch_size = calculate_batch_size(reader.source)
         try:
-            batch = []
+            stage_batch = []
+            failed_batch = []
             records_stage_loaded = 0
+            records_dlq_loaded = 0
 
-            for record in records:
-                batch.append(record)
+            try:
+                for record, passed in results:
+                    if passed:
+                        stage_batch.append(record)
 
-                if len(batch) >= batch_size:
-                    self._insert_batch(batch, stage_table_name)
-                    records_stage_loaded += len(batch)
-                    batch = []
-                    # Log progress every 100k records for large files, or every batch for smaller files
-                    if (
-                        records_stage_loaded % 100000 == 0
-                        or records_stage_loaded < 100000
-                    ):
-                        logger.info(
-                            f"[log_id={log.id}] Loaded {records_stage_loaded:,} records so far into stage table {stage_table_name} from {source_filename}..."
+                        if len(stage_batch) >= batch_size:
+                            self._insert_batch(stage_batch, stage_table_name)
+                            records_stage_loaded += len(stage_batch)
+                            stage_batch = []
+                            # Log progress every 100k records for large files, or every batch for smaller files
+                            if (
+                                records_stage_loaded % 100000 == 0
+                                or records_stage_loaded < 100000
+                            ):
+                                logger.info(
+                                    f"[log_id={log.id}] Loaded {records_stage_loaded:,} records so far into stage table {stage_table_name} from {source_filename}..."
+                                )
+
+                    if not passed:
+                        logger.debug(
+                            f"[log_id={log.id}] Record failed validation, adding to DLQ batch. Row: {record.get('file_row_number', 'unknown')}, Batch size: {len(failed_batch) + 1}"
                         )
-
-            # Insert remaining records in final batch
-            if batch:
-                self._insert_batch(batch, stage_table_name)
-                records_stage_loaded += len(batch)
+                        failed_batch.append(record)
+                        if len(failed_batch) >= batch_size:
+                            logger.info(
+                                f"[log_id={log.id}] DLQ batch size reached ({batch_size}), calling _insert_dlq_records"
+                            )
+                            self._insert_dlq_records(failed_batch, log)
+                            records_dlq_loaded += len(failed_batch)
+                            failed_batch = []
+                            if (
+                                records_dlq_loaded % 100000 == 0
+                                or records_dlq_loaded < 100000
+                            ):
+                                logger.info(
+                                    f"[log_id={log.id}] Loaded {records_dlq_loaded:,} records so far into DLQ from {source_filename}..."
+                                )
+            finally:  # Insert remaining records in final batch
+                if stage_batch:
+                    self._insert_batch(stage_batch, stage_table_name)
+                    records_stage_loaded += len(stage_batch)
+                if failed_batch:
+                    logger.info(
+                        f"[log_id={log.id}] Flushing final DLQ batch with {len(failed_batch)} records"
+                    )
+                    self._insert_dlq_records(failed_batch, log)
+                    records_dlq_loaded += len(failed_batch)
+                else:
+                    logger.debug(f"[log_id={log.id}] No failed records to flush to DLQ")
 
             logger.info(
-                f"[log_id={log.id}] Successfully loaded {records_stage_loaded} records into stage table {stage_table_name}"
+                f"[log_id={log.id}] Successfully loaded {records_stage_loaded} records into stage table {stage_table_name} and {records_dlq_loaded} records into DLQ"
             )
             log.stage_load_ended_at = pendulum.now()
             log.records_stage_loaded = records_stage_loaded
@@ -256,6 +337,9 @@ class FileProcessor:
                 stage_table_name, target_table_name, reader.source, source_filename, log
             )
 
+            # Only delete DLQ records if this is a reprocessing run (existing DLQ records from previous run)
+            self._delete_dlq_records_if_reprocessing(source_filename, log)
+
             return log
 
         finally:
@@ -263,22 +347,7 @@ class FileProcessor:
             logger.info(f"[log_id={log.id}] Deleted {source_filename}")
             self._drop_stage_table(stage_table_name, log)
 
-    def _calculate_batch_size(self, source) -> int:
-        """If SQL Server, calculate batch size based on 1000 values per INSERT limit."""
-        database_url = str(self.engine.url)
-        if "mssql" in database_url.lower():
-            # SQL Server has 1000 values per INSERT limit
-            max_values = 1000
-            column_count = (
-                len(source.source_model.model_fields) + 2
-            )  # +2 for ETL metadata columns (etl_row_hash, source_filename)
-            # Calculate max rows: (max_values / columns_per_row) - 1 for safety margin
-            max_rows = (max_values // column_count) - 1
-            return max(1, min(max_rows, config.BATCH_SIZE))
-
-        # For other databases, use configured batch size
-        return config.BATCH_SIZE
-
+    @retry()
     def _insert_batch(self, batch: list[Dict[str, Any]], table_name: str):
         columns = list[str](batch[0].keys())
 
@@ -334,16 +403,10 @@ class FileProcessor:
                 ]
 
                 if grain_related_audits and source.grain:
-                    grain_aliases = []
-                    for grain_field in source.grain:
-                        field_info = source.source_model.model_fields.get(grain_field)
-                        if field_info:
-                            alias = (
-                                field_info.alias if field_info.alias else grain_field
-                            )
-                            grain_aliases.append(alias)
-                        else:
-                            grain_aliases.append(grain_field)
+                    grain_aliases = [
+                        get_field_alias(source, grain_field)
+                        for grain_field in source.grain
+                    ]
 
                     error_msg_parts.append(
                         f"Grain columns (file column names): {', '.join(grain_aliases)}"
@@ -379,14 +442,6 @@ class FileProcessor:
                 now_iso = pendulum.now().to_iso8601_string()
 
                 update_columns = [col for col in columns if col not in source.grain]
-                update_set = ", ".join(
-                    [f"{col} = stage.{col}" for col in update_columns]
-                )
-                update_set += f", etl_updated_at = '{now_iso}'"
-
-                insert_columns = ", ".join(columns) + ", etl_created_at"
-                insert_values = ", ".join([f"stage.{col}" for col in columns])
-                insert_values += f", '{now_iso}'"
 
                 # Get Estimated Target Inserts and Updates
                 # EXISTS is more performant than NOT EXISTS
@@ -416,16 +471,17 @@ class FileProcessor:
                 new_updates = session.execute(update_sql).scalar()
                 log.target_updates = new_updates
 
-                merge_sql = text(f"""
-                    MERGE INTO {target_table_name} AS target
-                    USING {stage_table_name} AS stage
-                    ON {join_condition}
-                    WHEN MATCHED AND stage.etl_row_hash != target.etl_row_hash THEN
-                        UPDATE SET {update_set}
-                    WHEN NOT MATCHED THEN
-                        INSERT ({insert_columns})
-                        VALUES ({insert_values})
-                """)
+                merge_sql = text(
+                    create_merge_sql(
+                        stage_table_name=stage_table_name,
+                        target_table_name=target_table_name,
+                        join_condition=join_condition,
+                        columns=columns,
+                        update_columns=update_columns,
+                        grain=source.grain,
+                        now_iso=now_iso,
+                    )
+                )
 
                 session.execute(merge_sql)
                 session.commit()
@@ -440,6 +496,44 @@ class FileProcessor:
                 session.rollback()
                 logger.error(
                     f"[log_id={log.id}] Failed to merge {stage_table_name} to {target_table_name}: {e}"
+                )
+                raise
+
+    def _delete_dlq_records_if_reprocessing(self, file_name: str, log: FileLoadLog):
+        with self.Session() as session:
+            dlq_table = self._get_file_load_dlq()
+            # Check if there are DLQ records from a previous processing run (log_id < current)
+            existing_dlq = session.execute(
+                select(dlq_table.c.id)
+                .where(
+                    dlq_table.c.source_filename == file_name,
+                    dlq_table.c.file_load_log_id < log.id,
+                )
+                .limit(1)
+            ).first()
+
+            if existing_dlq:
+                # This is a reprocessing run - delete all DLQ records for this file
+                self._delete_dlq_records(file_name, log)
+            else:
+                logger.debug(
+                    f"[log_id={log.id}] No previous DLQ records found for {file_name}, skipping deletion (first time processing)"
+                )
+
+    @retry()
+    def _delete_dlq_records(self, file_name: str, log: FileLoadLog):
+        with self.Session() as session:
+            delete_sql = text(get_delete_dlq_sql())
+            try:
+                session.execute(delete_sql, {"file_name": file_name})
+                session.commit()
+                logger.info(
+                    f"[log_id={log.id}] Deleted DLQ records for file: {file_name}"
+                )
+            except Exception as e:
+                session.rollback()
+                logger.error(
+                    f"[log_id={log.id}] Failed to delete DLQ records for file: {file_name}: {e}"
                 )
                 raise
 
@@ -458,6 +552,59 @@ class FileProcessor:
                 logger.warning(
                     f"[log_id={log.id}] Failed to drop stage table {stage_table_name}: {e}"
                 )
+
+    def _serialize_json_for_dlq_table(self, data: Any) -> Any:
+        drivername = config.DRIVERNAME
+
+        if drivername == "mssql":
+            json_str = json.dumps(data, ensure_ascii=False)
+            if len(json_str) > 4000:
+                json_str = json_str[:3997] + "..."  # Leave room for "..."
+                logger.warning(
+                    f"JSON data truncated to 4000 chars for SQL Server compatibility"
+                )
+            return json_str
+        elif drivername == "sqlite":
+            return json.dumps(data, ensure_ascii=False)
+        else:
+            return data
+
+    @retry()
+    def _insert_dlq_records(
+        self, failed_records: List[Dict[str, Any]], log: FileLoadLog
+    ) -> None:
+        if not failed_records:
+            logger.warning(
+                f"[log_id={log.id}] _insert_dlq_records called with empty list"
+            )
+            return
+
+        logger.info(
+            f"[log_id={log.id}] _insert_dlq_records called with {len(failed_records)} records"
+        )
+        logger.debug(
+            f"[log_id={log.id}] First failed record keys: {list(failed_records[0].keys()) if failed_records else 'N/A'}"
+        )
+        logger.debug(
+            f"[log_id={log.id}] First failed record structure: {failed_records[0] if failed_records else 'N/A'}"
+        )
+
+        dlq_table = self._get_file_load_dlq()
+
+        with self.Session() as session:
+            try:
+                stmt = insert(dlq_table).values(failed_records)
+                session.execute(stmt)
+                session.commit()
+                logger.info(
+                    f"[log_id={log.id}] Successfully inserted {len(failed_records)} failed records into DLQ"
+                )
+            except Exception as e:
+                session.rollback()
+                logger.error(
+                    f"[log_id={log.id}] Failed to insert records into DLQ: {e}"
+                )
+                raise
 
     def _process_file_batch(self, batch: List[str], archive_path: Path) -> list[dict]:
         results: list[dict] = []
@@ -506,12 +653,18 @@ class FileProcessor:
                     self._log_update(log)
                     continue
                 try:
-                    log = self._load_records(
-                        self._process_file(file_path, archive_path, reader, log),
-                        reader,
-                        log,
+                    # Process file and get iterator (which may store failed records in log)
+                    records_iterator = self._process_file(
+                        file_path, archive_path, reader, log
                     )
+                    log = self._load_records(records_iterator, reader, log)
                     log.success = True
+
+                    # Insert failed records into DLQ if DLQ is enabled and there are failures
+                    if hasattr(log, "_dlq_failed_records") and log._dlq_failed_records:
+                        self._insert_dlq_records(log._dlq_failed_records, reader, log)
+                        # Clean up the temporary attribute
+                        delattr(log, "_dlq_failed_records")
                 finally:
                     log.ended_at = pendulum.now()
                     log.success = False if log.success is None else log.success

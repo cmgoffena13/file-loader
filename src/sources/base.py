@@ -45,9 +45,7 @@ class DataSource(BaseModel):
     table_name: str
     grain: list[str]
     audit_query: str
-    validation_error_threshold: float = Field(
-        default=0.0
-    )  # Default: 0% (no errors allowed)
+    validation_error_threshold: float = Field(default=0.0)
     notification_emails: Optional[list[str]] = Field(
         default=None
     )  # List of email addresses to notify on failures

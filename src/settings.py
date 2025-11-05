@@ -5,6 +5,13 @@ from typing import Optional
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+SUPPORTED_DATABASE_DRIVERS = {
+    "postgresql": "postgresql",
+    "mysql": "mysql",
+    "mssql": "mssql",
+    "sqlite": "sqlite",
+}
+
 
 class BaseConfig(BaseSettings):
     ENV_STATE: Optional[str] = None
@@ -20,6 +27,16 @@ class GlobalConfig(BaseConfig):
 
     BATCH_SIZE: int = 10000
     LOG_LEVEL: str = "INFO"
+
+    @property
+    def DRIVERNAME(self) -> str:
+        for drivername, dialect in SUPPORTED_DATABASE_DRIVERS.items():
+            if drivername in self.DATABASE_URL.lower():
+                return dialect.lower()
+        raise ValueError(
+            f"Unsupported database driver in DATABASE_URL: {self.DATABASE_URL}"
+        )
+
     # Email notification settings
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: Optional[int] = 587
@@ -28,9 +45,7 @@ class GlobalConfig(BaseConfig):
     FROM_EMAIL: Optional[str] = None
     DATA_TEAM_EMAIL: Optional[str] = None  # Always CC'd on failure notifications
     # Slack notification settings
-    SLACK_WEBHOOK_URL: Optional[str] = (
-        None  # Slack webhook URL for internal processing errors
-    )
+    SLACK_WEBHOOK_URL: Optional[str] = None
 
     @field_validator(
         "DIRECTORY_PATH", "ARCHIVE_PATH", "DUPLICATE_FILES_PATH", mode="before"
@@ -43,9 +58,6 @@ class GlobalConfig(BaseConfig):
 
 
 class DevConfig(GlobalConfig):
-    DATABASE_URL: str = (
-        "postgresql+psycopg://fileloader:fileloader@localhost:5432/fileloader"
-    )
     DIRECTORY_PATH: Path = Path("src/tests/test_data")
     ARCHIVE_PATH: Path = Path("src/tests/archive_data")
     DUPLICATE_FILES_PATH: Path = Path("src/tests/duplicate_files_data")

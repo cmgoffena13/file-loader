@@ -11,6 +11,34 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql
 
+  mysql:
+    image: mysql:8.0
+    container_name: file-loader-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: fileloader
+      MYSQL_USER: fileloader
+      MYSQL_PASSWORD: fileloader
+      MYSQL_DATABASE: fileloader
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: file-loader-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "FileLoader123!"
+      MSSQL_PID: "Developer"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+
 volumes:
   postgres_data:
+  mysql_data:
+  sqlserver_data:
 
