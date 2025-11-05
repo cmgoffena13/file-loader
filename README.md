@@ -229,7 +229,8 @@ The `file_load_log` table automatically tracks detailed metrics for every file p
 - **File Archive Phase**: Archive success/failure status, start/end timestamps
 - **Processing Phase**: Records processed count, validation errors count, start/end timestamps
 - **Staging Phase**: Records loaded into staging table count, start/end timestamps
-- **Audit Phase**: Audit success/failure status, start/end timestamps  
+- **Audit Phase**: Audit success/failure status, start/end timestamps
+  - This phase's first step is automatic grain validation, then the provided audit query
 - **Merge Phase**: Records inserted/updated in target table counts, start/end timestamps
 - **Overall Status**: Success/failure status for the entire run, start/end timestamps, exception error type
 
