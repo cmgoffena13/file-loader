@@ -239,8 +239,8 @@ def test_csv_dead_letter_queue_stores_validation_errors(
 
             # Verify DLQ record structure and content
             dlq_row_numbers = {row.file_row_number for row in dlq_records}
-            assert 2 in dlq_row_numbers  # TXN002 (invalid quantity)
-            assert 4 in dlq_row_numbers  # TXN004 (invalid date)
+            assert 3 in dlq_row_numbers  # TXN002 (invalid quantity) - row 1 is header
+            assert 5 in dlq_row_numbers  # TXN004 (invalid date) - row 1 is header
 
             for dlq_record in dlq_records:
                 # Verify required fields are present
@@ -257,11 +257,11 @@ def test_csv_dead_letter_queue_stores_validation_errors(
                 raw_data = json.loads(dlq_record.file_record_data)
                 assert "transaction_id" in raw_data
 
-                # Row 2 should have TXN002, Row 4 should have TXN004
-                if dlq_record.file_row_number == 2:
+                # Row 3 should have TXN002, Row 5 should have TXN004 (row 1 is header)
+                if dlq_record.file_row_number == 3:
                     assert raw_data["transaction_id"] == "TXN002"
                     assert "not_a_number" in str(raw_data.get("quantity", ""))
-                elif dlq_record.file_row_number == 4:
+                elif dlq_record.file_row_number == 5:
                     assert raw_data["transaction_id"] == "TXN004"
                     assert "invalid_date" in str(raw_data.get("sale_date", ""))
 
