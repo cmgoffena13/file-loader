@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Optional, Type
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_extra_types.pendulum_dt import DateTime
 
 
@@ -49,6 +49,18 @@ class DataSource(BaseModel):
     notification_emails: Optional[list[str]] = Field(
         default=None
     )  # List of email addresses to notify on failures
+
+    @model_validator(mode="after")
+    def validate_grain_fields(self):
+        """Validate that all grain columns are fields in the source model."""
+        model_fields = set(self.source_model.model_fields.keys())
+        invalid_grain = [g for g in self.grain if g not in model_fields]
+        if invalid_grain:
+            raise ValueError(
+                f"Grain columns {invalid_grain} are not fields in {self.source_model.__name__}. "
+                f"Available fields: {sorted(model_fields)}"
+            )
+        return self
 
     def matches_file(self, file_path: str) -> bool:
         return Path(file_path.lower()).match(self.file_pattern.lower())
