@@ -153,7 +153,7 @@ The system uses **parallel processing** with threads to handle multiple files co
 
 14. **MERGE Operation**: Data from the staging table is merged into the target table based on grain columns, handling inserts and updates appropriately
 
-15. **Dead Letter Queue Cleanup**: If this is a reprocessing run (DLQ records exist from a previous processing run for this file), all DLQ records for that filename are automatically deleted (in chunks) after a successful merge. This keeps the DLQ table clean by removing records that have been successfully reprocessed.
+15. **Dead Letter Queue Cleanup**: If this is a reprocessing run (DLQ records exist from a previous processing run for this file), all DLQ records for that filename are automatically deleted (in batches) after a successful merge. This keeps the DLQ table clean by removing records that have been successfully reprocessed.
 
 16. **Cleanup**: The staging table is dropped and the original file is deleted from the directory. The archived copy remains for recovery if needed (simply move from archive back to directory to reprocess). If bad data got into the target table, then DELETE from the target table where `source_filename = {file_name}` and then reprocess.
 
