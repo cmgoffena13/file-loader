@@ -297,13 +297,11 @@ This allows you to:
 - Debug issues by correlating logs with specific file operations
 - Monitor performance and identify bottlenecks
 
-The system gracefully falls back to console-only logging if `LOGFIRE_TOKEN` is not provided, so Logfire is completely optional. You can create a [free account](https://logfire-us.pydantic.dev) to get 1,000,000 requests per month though.
-
-> Hint: Disable the sqlalchemy.engine logging and you'd stay below the one million requests per month threshold for a LONG time.
+The system gracefully falls back to console-only logging if `LOGFIRE_TOKEN` is not provided, so Logfire is completely optional. You can create a [free account](https://logfire-us.pydantic.dev) to get 1,000,000 requests per month though...
 
 ## Reporting
 
-Below is a query I developed to monitor the `file_load_log` table. Shows you most relevant information and you can look at the table more closely if you need additional information.
+Below is a query I developed to monitor the `file_load_log` table. Shows you the most relevant information and you can look at the table more closely if you need additional info.
 
 ```sql
 ;with CTE as (

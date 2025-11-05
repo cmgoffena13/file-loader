@@ -52,7 +52,7 @@ def main():
             )
 
     except Exception as e:
-        if config.SLACK_WEBHOOK_URL:
+        if config.SLACK_WEBHOOK_URL is not None:
             send_slack_notification(
                 error_message=str(e),
                 file_name=None,

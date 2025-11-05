@@ -95,7 +95,9 @@ class FileProcessor:
     def _get_reader(self, file_path: Path) -> BaseReader:
         source = MASTER_REGISTRY.find_source_for_file(file_path.name)
         if not source:
-            logger.warning(f"No source configuration found for file: {file_path.name}")
+            logger.warning(
+                f"[log_id=N/A] No source configuration found for file: {file_path.name}"
+            )
             return None
 
         reader = self.reader_factory.create_reader(file_path, source=source)
@@ -137,7 +139,9 @@ class FileProcessor:
             )
             raise
 
-    def _move_to_duplicates(self, file_path: Path, duplicates_path: Path) -> None:
+    def _move_to_duplicates(
+        self, file_path: Path, duplicates_path: Path, log: FileLoadLog
+    ) -> None:
         """Move a duplicate file to the duplicates directory."""
         duplicates_path.mkdir(parents=True, exist_ok=True)
         destination = duplicates_path / file_path.name
@@ -150,7 +154,7 @@ class FileProcessor:
 
         shutil.move(str(file_path), str(destination))
         logger.info(
-            f"Moved duplicate file {file_path.name} to duplicates directory: {destination}"
+            f"[log_id={log.id}] Moved duplicate file {file_path.name} to duplicates directory: {destination}"
         )
 
     def _process_file(
@@ -284,7 +288,7 @@ class FileProcessor:
                         stage_batch.append(record)
 
                         if len(stage_batch) >= batch_size:
-                            self._insert_batch(stage_batch, stage_table_name)
+                            self._insert_batch(stage_batch, stage_table_name, log)
                             records_stage_loaded += len(stage_batch)
                             stage_batch = []
                             # Log progress every 100k records for large files, or every batch for smaller files
@@ -317,16 +321,11 @@ class FileProcessor:
                                 )
             finally:  # Insert remaining records in final batch
                 if stage_batch:
-                    self._insert_batch(stage_batch, stage_table_name)
+                    self._insert_batch(stage_batch, stage_table_name, log)
                     records_stage_loaded += len(stage_batch)
                 if failed_batch:
-                    logger.info(
-                        f"[log_id={log.id}] Flushing final DLQ batch with {len(failed_batch)} records"
-                    )
                     self._insert_dlq_records(failed_batch, log)
                     records_dlq_loaded += len(failed_batch)
-                else:
-                    logger.debug(f"[log_id={log.id}] No failed records to flush to DLQ")
 
             logger.info(
                 f"[log_id={log.id}] Successfully loaded {records_stage_loaded} records into stage table {stage_table_name} and {records_dlq_loaded} records into DLQ"
@@ -354,7 +353,9 @@ class FileProcessor:
             self._drop_stage_table(stage_table_name, log)
 
     @retry()
-    def _insert_batch(self, batch: list[Dict[str, Any]], table_name: str):
+    def _insert_batch(
+        self, batch: list[Dict[str, Any]], table_name: str, log: FileLoadLog
+    ):
         columns = list[str](batch[0].keys())
 
         placeholders = ", ".join([f":{col}" for col in columns])
@@ -366,10 +367,14 @@ class FileProcessor:
             try:
                 session.execute(text(insert_sql), batch)
                 session.commit()
-                logger.debug(f"Inserted {len(batch)} records into {table_name}")
+                logger.debug(
+                    f"[log_id={log.id}] Inserted {len(batch)} records into {table_name}"
+                )
             except Exception as e:
                 session.rollback()
-                logger.error(f"Failed to insert batch into {table_name}: {e}")
+                logger.error(
+                    f"[log_id={log.id}] Failed to insert batch into {table_name}: {e}"
+                )
                 raise
 
     @retry()
@@ -639,8 +644,8 @@ class FileProcessor:
                 stmt = insert(dlq_table).values(failed_records)
                 session.execute(stmt)
                 session.commit()
-                logger.info(
-                    f"[log_id={log.id}] Successfully inserted {len(failed_records)} failed records into DLQ"
+                logger.debug(
+                    f"[log_id={log.id}] Inserted {len(failed_records)} failed records into DLQ"
                 )
             except Exception as e:
                 session.rollback()
@@ -680,11 +685,9 @@ class FileProcessor:
                         logger.warning(
                             f"[log_id={log.id}] File {source_filename} has already been processed - moving to duplicates directory"
                         )
-                        self._move_to_duplicates(file_path, duplicates_path)
+                        self._move_to_duplicates(file_path, duplicates_path, log)
                         log.duplicate_skipped = True
-                        logger.info(
-                            f"[log_id={log.id}] Successfully moved duplicate file {source_filename} to duplicates directory"
-                        )
+
                         if reader.source.notification_emails:
                             error_message = (
                                 f"The file {source_filename} has already been processed and has been moved to the duplicates directory.\n\n"

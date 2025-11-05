@@ -49,7 +49,7 @@ def configure_logging() -> None:
         loggers["src"]["handlers"].append("logfire_src")
         loggers["sqlalchemy.engine"] = {
             "handlers": ["logfire_sql"],
-            "level": "INFO",
+            "level": "DEBUG",
             "propagate": False,
         }
 
