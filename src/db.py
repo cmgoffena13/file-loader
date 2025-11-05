@@ -196,12 +196,20 @@ def create_merge_sql(
     insert_columns = ", ".join(columns) + ", etl_created_at"
     select_columns = ", ".join([f"stage.{col}" for col in columns]) + f", '{now_iso}'"
 
+    # Exclude source_filename from regular updates - it will be conditionally updated
+    update_columns_filtered = [
+        col for col in update_columns if col != "source_filename"
+    ]
+
     if drivername == "mysql":
         # MySQL uses INSERT ... ON DUPLICATE KEY UPDATE
         update_on_duplicate_parts = []
-        for col in update_columns:
+        for col in update_columns_filtered:
             update_on_duplicate_parts.append(f"{col} = stage.{col}")
-        # Only update etl_updated_at if data actually changed
+        # Only update source_filename and etl_updated_at if data actually changed
+        update_on_duplicate_parts.append(
+            f"source_filename = IF(stage.etl_row_hash != {target_table_name}.etl_row_hash, stage.source_filename, {target_table_name}.source_filename)"
+        )
         update_on_duplicate_parts.append(
             f"etl_updated_at = IF(stage.etl_row_hash != {target_table_name}.etl_row_hash, '{now_iso}', {target_table_name}.etl_updated_at)"
         )
@@ -216,13 +224,15 @@ def create_merge_sql(
         """
     elif drivername == "sqlite":
         # SQLite uses INSERT ... ON CONFLICT ... DO UPDATE
-        # Note: Must include WHERE clause to resolve parser ambiguity with ON CONFLICT
+        # Note: Must include WHERE 1=1 clause to resolve parser ambiguity with ON CONFLICT
         conflict_columns = ", ".join(grain)
         update_set_parts = []
-        for col in update_columns:
+        for col in update_columns_filtered:
             update_set_parts.append(f"{col} = excluded.{col}")
-        # Only update etl_updated_at if data actually changed
-        # In SQLite ON CONFLICT DO UPDATE, use unqualified column names for existing table values
+        # Only update source_filename and etl_updated_at if data actually changed
+        update_set_parts.append(
+            f"source_filename = CASE WHEN excluded.etl_row_hash != etl_row_hash THEN excluded.source_filename ELSE source_filename END"
+        )
         update_set_parts.append(
             f"etl_updated_at = CASE WHEN excluded.etl_row_hash != etl_row_hash THEN excluded.etl_updated_at ELSE etl_updated_at END"
         )
@@ -239,7 +249,10 @@ def create_merge_sql(
         """
     else:
         # PostgreSQL and SQL Server use MERGE INTO
-        update_set = ", ".join([f"{col} = stage.{col}" for col in update_columns])
+        update_set = ", ".join(
+            [f"{col} = stage.{col}" for col in update_columns_filtered]
+        )
+        update_set += f", source_filename = stage.source_filename"
         update_set += f", etl_updated_at = '{now_iso}'"
         insert_values = ", ".join([f"stage.{col}" for col in columns])
         insert_values += f", '{now_iso}'"
