@@ -208,13 +208,14 @@ Example audit queries:
 - Aggregate value checks (e.g., total sales amount within expected range)
 - Business rule validations (e.g., date ranges valid)
 
-Example Query (sale_date has to be within the last 30 days)
+Example Query (sale_date records have to be within the last 30 days and total sales amount has to be less than on million dollars)
 ```sql
 SELECT
 CASE 
   WHEN SUM(
     CASE WHEN sale_date BETWEEN DATEADD(day, -30, GETDATE()) AND GETDATE() THEN 1 ELSE 0 END
-    ) = COUNT(*) THEN 1 ELSE 0 END AS sale_date_within_last_30_days
+    ) = COUNT(*) THEN 1 ELSE 0 END AS sale_date_within_last_30_days,
+CASE WHEN SUM(sale_amount) < 1000000 THEN 1 ELSE 0 END AS sales_under_one_million
 FROM {table}
 ```
 
