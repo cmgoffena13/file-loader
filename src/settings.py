@@ -57,6 +57,7 @@ class GlobalConfig(BaseConfig):
         return Path(v) if v else v
 
     LOGFIRE_TOKEN: Optional[str] = None
+    LOGFIRE_CONSOLE: bool = False
 
 
 class DevConfig(GlobalConfig):

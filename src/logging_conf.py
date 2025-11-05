@@ -10,10 +10,15 @@ logger = logging.getLogger(__name__)
 
 
 def configure_logging() -> None:
-    if config.LOGFIRE_TOKEN:
-        logfire.configure(token=config.LOGFIRE_TOKEN, service_name="fileloader")
-
     # Build handlers based on whether Logfire is configured
+
+    if config.LOGFIRE_TOKEN:
+        logfire.configure(
+            token=config.LOGFIRE_TOKEN,
+            service_name="fileloader",
+            console=config.LOGFIRE_CONSOLE,
+        )
+
     handlers = {
         "default": {
             "class": "rich.logging.RichHandler",

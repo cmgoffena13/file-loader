@@ -3,6 +3,7 @@ from src.logging_conf import configure_logging
 from src.notifications import send_slack_notification
 from src.process import process_directory
 from src.retry import get_error_location
+from src.settings import config
 
 
 def main():
@@ -51,13 +52,17 @@ def main():
             )
 
     except Exception as e:
-        send_slack_notification(
-            error_message=str(e),
-            file_name=None,
-            log_id=None,
-            error_location=get_error_location(e),
-        )
-        raise
+        if config.SLACK_WEBHOOK_URL:
+            send_slack_notification(
+                error_message=str(e),
+                file_name=None,
+                log_id=None,
+                error_location=get_error_location(e),
+            )
+        else:
+            raise ValueError(
+                f"Slack Webook URL not configured, raising exception to avoid silent failure: {e}"
+            )
 
 
 if __name__ == "__main__":

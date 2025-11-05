@@ -3,9 +3,11 @@ import logging
 import multiprocessing
 import shutil
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
+import logfire
 import pendulum
 from pydantic import ValidationError
 from sqlalchemy import MetaData, Table, insert, select, text, update
@@ -53,23 +55,21 @@ class FileProcessor:
         self.Session = sessionmaker[Session](bind=self.engine)
         self.thread_pool = ThreadPoolExecutor(max_workers=multiprocessing.cpu_count())
         self._metadata = MetaData()
-        self._file_load_log: Optional[Table] = None
-        self._file_load_dlq: Optional[Table] = None
+        # Pre-initialize table references at startup to avoid reflection queries during processing
+        self._metadata.reflect(
+            bind=self.engine, only=["file_load_log", "file_load_dlq"]
+        )
+        self._file_load_log = Table(
+            "file_load_log", self._metadata, autoload_with=self.engine
+        )
+        self._file_load_dlq = Table(
+            "file_load_dlq", self._metadata, autoload_with=self.engine
+        )
 
     def _get_file_load_log(self) -> Table:
-        if self._file_load_log is None:
-            self._metadata.reflect(bind=self.engine, only=["file_load_log"])
-            self._file_load_log = Table(
-                "file_load_log", self._metadata, autoload_with=self.engine
-            )
         return self._file_load_log
 
     def _get_file_load_dlq(self) -> Table:
-        if self._file_load_dlq is None:
-            self._metadata.reflect(bind=self.engine, only=["file_load_dlq"])
-            self._file_load_dlq = Table(
-                "file_load_dlq", self._metadata, autoload_with=self.engine
-            )
         return self._file_load_dlq
 
     @retry()
@@ -651,109 +651,126 @@ class FileProcessor:
 
         for file_path_str in batch:
             file_path = Path(file_path_str)
-            try:
-                reader = self._get_reader(file_path)
-                if not reader:
-                    logger.warning(
-                        f"[log_id=N/A] No reader found for file: {file_path.name}"
-                    )
-                    continue
 
-                file_name = reader.file_path.name
-                log = FileLoadLog(
-                    file_name=file_name,
-                    started_at=pendulum.now(),
-                )
-                log.id = self._log_start(log.file_name, log.started_at)
-                if self._check_duplicate_file(reader.source, file_name):
-                    logger.warning(
-                        f"[log_id={log.id}] File {file_name} has already been processed - moving to duplicates directory"
-                    )
-                    self._move_to_duplicates(file_path, duplicates_path)
-                    log.duplicate_skipped = True
-                    logger.info(
-                        f"[log_id={log.id}] Successfully moved duplicate file {file_name} to duplicates directory"
-                    )
-                    if reader.source.notification_emails:
-                        error_message = (
-                            f"The file {file_name} has already been processed and has been moved to the duplicates directory.\n\n"
-                            f"To reprocess this file:\n"
-                            f"1. Existing records need to be removed from the target table where source_filename = '{file_name}'\n"
-                            f"2. Move the file from the duplicates directory back to the processing directory"
+            with logfire.span(
+                f"processing file: {file_path.name}",
+                file_name=file_path.name,
+            ):
+                try:
+                    reader = self._get_reader(file_path)
+                    if not reader:
+                        logger.warning(
+                            f"[log_id=N/A] No reader found for file: {file_path.name}"
                         )
+                        continue
+
+                    file_name = reader.file_path.name
+                    log = FileLoadLog(
+                        file_name=file_name,
+                        started_at=pendulum.now(),
+                    )
+                    log.id = self._log_start(log.file_name, log.started_at)
+
+                    if self._check_duplicate_file(reader.source, file_name):
+                        logger.warning(
+                            f"[log_id={log.id}] File {file_name} has already been processed - moving to duplicates directory"
+                        )
+                        self._move_to_duplicates(file_path, duplicates_path)
+                        log.duplicate_skipped = True
+                        logger.info(
+                            f"[log_id={log.id}] Successfully moved duplicate file {file_name} to duplicates directory"
+                        )
+                        if reader.source.notification_emails:
+                            error_message = (
+                                f"The file {file_name} has already been processed and has been moved to the duplicates directory.\n\n"
+                                f"To reprocess this file:\n"
+                                f"1. Existing records need to be removed from the target table where source_filename = '{file_name}'\n"
+                                f"2. Move the file from the duplicates directory back to the processing directory"
+                            )
+                            send_failure_notification(
+                                file_name=file_name,
+                                error_type="Duplicate File Detected",
+                                error_message=error_message,
+                                log_id=log.id,
+                                recipient_emails=reader.source.notification_emails,
+                            )
+                        self._log_update(log)
+                        continue
+                    try:
+                        # Process file and get iterator (which may store failed records in log)
+                        records_iterator = self._process_file(
+                            file_path, archive_path, reader, log
+                        )
+                        log = self._load_records(records_iterator, reader, log)
+                        log.success = True
+
+                        # Insert failed records into DLQ if DLQ is enabled and there are failures
+                        if (
+                            hasattr(log, "_dlq_failed_records")
+                            and log._dlq_failed_records
+                        ):
+                            self._insert_dlq_records(
+                                log._dlq_failed_records, reader, log
+                            )
+                            # Clean up the temporary attribute
+                            delattr(log, "_dlq_failed_records")
+                    finally:
+                        log.ended_at = pendulum.now()
+                        log.success = False if log.success is None else log.success
+                        self._log_update(log)
+
+                    results.append(
+                        log.model_dump(include={"id", "file_name", "success"})
+                    )
+                except tuple(FILE_ERROR_EXCEPTIONS) as e:
+                    logger.error(
+                        f"[log_id={log.id}] Failed to process {file_path}: {e}"
+                    )
+
+                    if reader.source.notification_emails:
                         send_failure_notification(
-                            file_name=file_name,
-                            error_type="Duplicate File Detected",
-                            error_message=error_message,
+                            file_name=file_path.name,
+                            error_type=e.error_type,
+                            error_message=str(e),
                             log_id=log.id,
                             recipient_emails=reader.source.notification_emails,
                         )
-                    self._log_update(log)
-                    continue
-                try:
-                    # Process file and get iterator (which may store failed records in log)
-                    records_iterator = self._process_file(
-                        file_path, archive_path, reader, log
-                    )
-                    log = self._load_records(records_iterator, reader, log)
-                    log.success = True
 
-                    # Insert failed records into DLQ if DLQ is enabled and there are failures
-                    if hasattr(log, "_dlq_failed_records") and log._dlq_failed_records:
-                        self._insert_dlq_records(log._dlq_failed_records, reader, log)
-                        # Clean up the temporary attribute
-                        delattr(log, "_dlq_failed_records")
-                finally:
-                    log.ended_at = pendulum.now()
-                    log.success = False if log.success is None else log.success
-                    self._log_update(log)
-
-                results.append(log.model_dump(include={"id", "file_name", "success"}))
-            except tuple(FILE_ERROR_EXCEPTIONS) as e:
-                logger.error(f"[log_id={log.id}] Failed to process {file_path}: {e}")
-
-                if reader.source.notification_emails:
-                    send_failure_notification(
-                        file_name=file_path.name,
-                        error_type=e.error_type,
-                        error_message=str(e),
-                        log_id=log.id,
-                        recipient_emails=reader.source.notification_emails,
-                    )
-
-                log.ended_at = pendulum.now()
-                log.success = False
-                log.error_type = e.error_type
-                self._log_update(log)
-                results.append(
-                    {
-                        "id": log.id,
-                        "file_name": file_path.name,
-                        "success": False,
-                        "error_type": e.error_type,
-                        "error_message": str(e),
-                        "error_location": get_error_location(e),
-                    }
-                )
-            except Exception as e:
-                log_id = log.id if log else "N/A"
-                logger.error(f"[log_id={log_id}] Failed to process {file_path}: {e}")
-
-                if log:
                     log.ended_at = pendulum.now()
                     log.success = False
-                    log.error_type = type(e).__name__
+                    log.error_type = e.error_type
                     self._log_update(log)
-                results.append(
-                    {
-                        "id": log.id if log else None,
-                        "file_name": file_path.name,
-                        "success": False,
-                        "error_type": type(e).__name__,
-                        "error_message": str(e),
-                        "error_location": get_error_location(e),
-                    }
-                )
+                    results.append(
+                        {
+                            "id": log.id,
+                            "file_name": file_path.name,
+                            "success": False,
+                            "error_type": e.error_type,
+                            "error_message": str(e),
+                            "error_location": get_error_location(e),
+                        }
+                    )
+                except Exception as e:
+                    log_id = log.id if log else "N/A"
+                    logger.error(
+                        f"[log_id={log_id}] Failed to process {file_path}: {e}"
+                    )
+
+                    if log:
+                        log.ended_at = pendulum.now()
+                        log.success = False
+                        log.error_type = type(e).__name__
+                        self._log_update(log)
+                    results.append(
+                        {
+                            "id": log.id if log else None,
+                            "file_name": file_path.name,
+                            "success": False,
+                            "error_type": type(e).__name__,
+                            "error_message": str(e),
+                            "error_location": get_error_location(e),
+                        }
+                    )
         return results
 
     def process_files_parallel(
@@ -795,11 +812,11 @@ class FileProcessor:
         for batch_result in batch_results:
             all_results.extend(batch_result)
 
-        successful = sum(1 for r in all_results if r.get("success"))
+        successful = sum(1 for r in all_results if r.get("success") is True)
         failed = len(all_results) - successful
 
         logger.info(
-            f"Processed {len(file_paths)} files: {successful} successful, {failed} failed"
+            f"Processed {len(all_results)} files: {successful} successful, {failed} failed"
         )
         return all_results
 
