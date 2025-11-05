@@ -8,6 +8,7 @@ import pytest
 
 from src.exceptions import (
     AuditFailedError,
+    GrainValidationError,
     MissingColumnsError,
     MissingHeaderError,
     ValidationThresholdExceededError,
@@ -142,7 +143,7 @@ def test_email_notification_on_duplicate_file(test_csv_file, temp_sqlite_db):
 
 
 def test_email_notification_on_audit_failure(csv_duplicate_grain, temp_sqlite_db):
-    """Test that email notification is sent for AuditFailedError."""
+    """Test that email notification is sent for GrainValidationError."""
     MASTER_REGISTRY.sources = [TEST_SALES]
 
     original_emails = TEST_SALES.notification_emails
@@ -161,10 +162,10 @@ def test_email_notification_on_audit_failure(csv_duplicate_grain, temp_sqlite_db
             assert mock_email.called
             call_args = mock_email.call_args
             assert call_args[1]["file_name"] == csv_duplicate_grain.name
-            assert call_args[1]["error_type"] == AuditFailedError.error_type
+            assert call_args[1]["error_type"] == GrainValidationError.error_type
             assert call_args[1]["log_id"] is not None
             assert call_args[1]["recipient_emails"] == ["business@example.com"]
-            assert "Audit checks failed" in call_args[1]["error_message"]
+            assert "Grain values are not unique" in call_args[1]["error_message"]
     finally:
         TEST_SALES.notification_emails = original_emails
 
@@ -215,6 +216,7 @@ def test_slack_notification_aggregate_in_main(test_csv_file, temp_sqlite_db):
             MissingColumnsError.error_type,
             ValidationThresholdExceededError.error_type,
             AuditFailedError.error_type,
+            GrainValidationError.error_type,
         }
         code_failures = [
             r
