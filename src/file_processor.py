@@ -122,9 +122,9 @@ class FileProcessor:
         """Copy file to archive directory with logging."""
         archive_file_path = archive_path / file_path.name
         try:
-            log.archive_copy_started_at = pendulum.now()
+            log.archive_copy_started_at = pendulum.now("UTC")
             shutil.copyfile(file_path, archive_file_path)
-            log.archive_copy_ended_at = pendulum.now()
+            log.archive_copy_ended_at = pendulum.now("UTC")
             log.archive_copy_success = True
             logger.info(
                 f"[log_id={log.id}] Copied {file_path.name} to archive: {archive_file_path}"
@@ -141,7 +141,7 @@ class FileProcessor:
         destination = duplicates_path / file_path.name
 
         if destination.exists():
-            timestamp = pendulum.now().format("YYYYMMDD_HHmmss")
+            timestamp = pendulum.now("UTC").format("YYYYMMDD_HHmmss")
             stem = file_path.stem
             suffix = file_path.suffix
             destination = duplicates_path / f"{stem}_{timestamp}{suffix}"
@@ -156,7 +156,7 @@ class FileProcessor:
     ) -> Iterator[Dict[str, Any]]:
         self._copy_to_archive(file_path, archive_path, log)
 
-        log.processing_started_at = pendulum.now()
+        log.processing_started_at = pendulum.now("UTC")
         records_processed = 0
         validation_errors = 0
         sample_validation_errors = []
@@ -227,7 +227,7 @@ class FileProcessor:
                     "source_filename": file_path.name,
                     "file_load_log_id": log.id,
                     "target_table_name": reader.source.table_name,
-                    "failed_at": pendulum.now(),
+                    "failed_at": pendulum.now("UTC"),
                 }
                 result = (record, False)
 
@@ -251,7 +251,7 @@ class FileProcessor:
                 )
                 raise ValidationThresholdExceededError(error_msg)
 
-        log.processing_ended_at = pendulum.now()
+        log.processing_ended_at = pendulum.now("UTC")
         log.processing_success = True
 
     def _load_records(
@@ -260,7 +260,7 @@ class FileProcessor:
         reader: BaseReader,
         log: FileLoadLog,
     ) -> FileLoadLog:
-        log.stage_load_started_at = pendulum.now()
+        log.stage_load_started_at = pendulum.now("UTC")
         source_filename = reader.file_path.name
         target_table_name = reader.source.table_name
 
@@ -329,7 +329,7 @@ class FileProcessor:
             logger.info(
                 f"[log_id={log.id}] Successfully loaded {records_stage_loaded} records into stage table {stage_table_name} and {records_dlq_loaded} records into DLQ"
             )
-            log.stage_load_ended_at = pendulum.now()
+            log.stage_load_ended_at = pendulum.now("UTC")
             log.records_stage_loaded = records_stage_loaded
             log.stage_load_success = True
 
@@ -416,13 +416,13 @@ class FileProcessor:
         source: DataSource,
         log: FileLoadLog,
     ) -> FileLoadLog:
-        log.audit_started_at = pendulum.now()
+        log.audit_started_at = pendulum.now("UTC")
 
         self._validate_grain(source, stage_table_name, source_filename)
 
         # If no custom audit_query is provided, only grain validation runs
         if source.audit_query is None:
-            log.audit_ended_at = pendulum.now()
+            log.audit_ended_at = pendulum.now("UTC")
             log.audit_success = True
             return log
 
@@ -440,7 +440,7 @@ class FileProcessor:
                     failed_audits.append(audit_name)
 
             if failed_audits:
-                log.audit_ended_at = pendulum.now()
+                log.audit_ended_at = pendulum.now("UTC")
                 log.audit_success = False
 
                 error_msg_parts = [
@@ -451,7 +451,7 @@ class FileProcessor:
 
                 error_msg = "\n".join(error_msg_parts)
                 raise AuditFailedError(error_msg)
-            log.audit_ended_at = pendulum.now()
+            log.audit_ended_at = pendulum.now("UTC")
             log.audit_success = True
             return log
 
@@ -466,7 +466,7 @@ class FileProcessor:
     ) -> FileLoadLog:
         with self.Session() as session:
             try:
-                log.merge_started_at = pendulum.now()
+                log.merge_started_at = pendulum.now("UTC")
                 columns = [
                     col.name
                     for col in get_table_columns(source, include_timestamps=False)
@@ -476,7 +476,7 @@ class FileProcessor:
                     [f"target.{col} = stage.{col}" for col in source.grain]
                 )
 
-                now_iso = pendulum.now().to_iso8601_string()
+                now_iso = pendulum.now("UTC").to_iso8601_string()
 
                 update_columns = [col for col in columns if col not in source.grain]
 
@@ -522,7 +522,7 @@ class FileProcessor:
 
                 session.execute(merge_sql)
                 session.commit()
-                log.merge_ended_at = pendulum.now()
+                log.merge_ended_at = pendulum.now("UTC")
                 log.merge_success = True
                 logger.info(
                     f"[log_id={log.id}] Successfully performed merge from {stage_table_name} to {target_table_name}: {log.target_inserts} inserts, {log.target_updates} updates"
@@ -653,7 +653,7 @@ class FileProcessor:
             file_path = Path(file_path_str)
 
             with logfire.span(
-                f"processing file: {file_path.name}",
+                f"FILE: {file_path.name}",
                 file_name=file_path.name,
             ):
                 try:
@@ -667,7 +667,7 @@ class FileProcessor:
                     file_name = reader.file_path.name
                     log = FileLoadLog(
                         file_name=file_name,
-                        started_at=pendulum.now(),
+                        started_at=pendulum.now("UTC"),
                     )
                     log.id = self._log_start(log.file_name, log.started_at)
 
@@ -715,7 +715,7 @@ class FileProcessor:
                             # Clean up the temporary attribute
                             delattr(log, "_dlq_failed_records")
                     finally:
-                        log.ended_at = pendulum.now()
+                        log.ended_at = pendulum.now("UTC")
                         log.success = False if log.success is None else log.success
                         self._log_update(log)
 
@@ -723,9 +723,7 @@ class FileProcessor:
                         log.model_dump(include={"id", "file_name", "success"})
                     )
                 except tuple(FILE_ERROR_EXCEPTIONS) as e:
-                    logger.error(
-                        f"[log_id={log.id}] Failed to process {file_path}: {e}"
-                    )
+                    logger.error(f"[log_id={log.id}] {e}")
 
                     if reader.source.notification_emails:
                         send_failure_notification(
@@ -736,7 +734,7 @@ class FileProcessor:
                             recipient_emails=reader.source.notification_emails,
                         )
 
-                    log.ended_at = pendulum.now()
+                    log.ended_at = pendulum.now("UTC")
                     log.success = False
                     log.error_type = e.error_type
                     self._log_update(log)
@@ -752,12 +750,10 @@ class FileProcessor:
                     )
                 except Exception as e:
                     log_id = log.id if log else "N/A"
-                    logger.error(
-                        f"[log_id={log_id}] Failed to process {file_path}: {e}"
-                    )
+                    logger.error(f"[log_id={log_id}] {e}")
 
                     if log:
-                        log.ended_at = pendulum.now()
+                        log.ended_at = pendulum.now("UTC")
                         log.success = False
                         log.error_type = type(e).__name__
                         self._log_update(log)
