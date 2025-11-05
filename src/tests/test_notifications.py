@@ -190,7 +190,7 @@ def test_slack_notification_on_unexpected_exception(test_csv_file, temp_sqlite_d
     assert results[0]["success"] is False
     assert results[0]["error_type"] == "ValueError"
     assert "Unexpected error" in results[0]["error_message"]
-    assert results[0]["file_name"] == test_csv_file.name
+    assert results[0]["source_filename"] == test_csv_file.name
     assert results[0]["error_location"] is not None
 
 
@@ -231,11 +231,11 @@ def test_slack_notification_aggregate_in_main(test_csv_file, temp_sqlite_db):
 
             failure_details = []
             for failure in code_failures:
-                file_name = failure.get("file_name", "Unknown")
+                source_filename = failure.get("source_filename", "Unknown")
                 error_type = failure.get("error_type", "Unknown Error")
                 error_message = failure.get("error_message", "No error details")
 
-                detail = f"• {file_name}: {error_type}"
+                detail = f"• {source_filename}: {error_type}"
                 if error_message:
                     if len(error_message) > 200:
                         error_message = error_message[:200] + "..."

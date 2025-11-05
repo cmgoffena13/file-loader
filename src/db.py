@@ -332,7 +332,7 @@ def create_tables() -> Engine:
         "file_load_log",
         metadata,
         Column("id", id_column_type, primary_key=True, autoincrement=True),
-        Column("file_name", String(255), nullable=False),
+        Column("source_filename", String(255), nullable=False),
         Column("started_at", datetime_type, nullable=False),
         Column("duplicate_skipped", Boolean, nullable=True),
         # archive copy phase
@@ -365,7 +365,7 @@ def create_tables() -> Engine:
         Column("success", Boolean, nullable=True),
         Column("error_type", String(50), nullable=True),
     )
-    Index("idx_file_load_log_file_name", file_load_log.c.file_name)
+    Index("idx_file_load_log_source_filename", file_load_log.c.source_filename)
     tables.append(file_load_log)
 
     # Dead Letter Queue table for validation failures

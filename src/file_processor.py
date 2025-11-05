@@ -73,9 +73,11 @@ class FileProcessor:
         return self._file_load_dlq
 
     @retry()
-    def _log_start(self, file_name: str, started_at) -> int:
+    def _log_start(self, source_filename: str, started_at) -> int:
         log = self._get_file_load_log()
-        stmt = insert(log).values(file_name=file_name, started_at=started_at)
+        stmt = insert(log).values(
+            source_filename=source_filename, started_at=started_at
+        )
         with self.engine.begin() as conn:
             res = conn.execute(stmt)
             return int(res.inserted_primary_key[0])
@@ -84,7 +86,7 @@ class FileProcessor:
     def _log_update(self, log: FileLoadLog) -> None:
         log_table = self._get_file_load_log()
         vals = log.model_dump(
-            exclude_unset=True, exclude={"id", "file_name", "started_at"}
+            exclude_unset=True, exclude={"id", "source_filename", "started_at"}
         )
         stmt = update(log_table).where(log_table.c.id == log.id).values(**vals)
         with self.engine.begin() as conn:
@@ -536,14 +538,16 @@ class FileProcessor:
                 )
                 raise
 
-    def _delete_dlq_records_if_reprocessing(self, file_name: str, log: FileLoadLog):
+    def _delete_dlq_records_if_reprocessing(
+        self, source_filename: str, log: FileLoadLog
+    ):
         with self.Session() as session:
             dlq_table = self._get_file_load_dlq()
             # Check if there are DLQ records from a previous processing run (log_id < current)
             existing_dlq = session.execute(
                 select(dlq_table.c.id)
                 .where(
-                    dlq_table.c.source_filename == file_name,
+                    dlq_table.c.source_filename == source_filename,
                     dlq_table.c.file_load_log_id < log.id,
                 )
                 .limit(1)
@@ -551,14 +555,14 @@ class FileProcessor:
 
             if existing_dlq:
                 # This is a reprocessing run - delete all DLQ records for this file
-                self._delete_dlq_records(file_name, log)
+                self._delete_dlq_records(source_filename, log)
             else:
                 logger.debug(
-                    f"[log_id={log.id}] No previous DLQ records found for {file_name}, skipping deletion (first time processing)"
+                    f"[log_id={log.id}] No previous DLQ records found for {source_filename}, skipping deletion (first time processing)"
                 )
 
     @retry()
-    def _delete_dlq_records(self, file_name: str, log: FileLoadLog):
+    def _delete_dlq_records(self, source_filename: str, log: FileLoadLog):
         with self.Session() as session:
             delete_sql = text(get_delete_dlq_sql())
             total_deleted = 0
@@ -566,7 +570,8 @@ class FileProcessor:
             try:
                 while True:
                     result = session.execute(
-                        delete_sql, {"file_name": file_name, "limit": config.BATCH_SIZE}
+                        delete_sql,
+                        {"file_name": source_filename, "limit": config.BATCH_SIZE},
                     )
                     session.commit()
 
@@ -576,12 +581,12 @@ class FileProcessor:
                     total_deleted += result.rowcount
 
                 logger.info(
-                    f"[log_id={log.id}] Deleted total of {total_deleted} DLQ record(s) for file: {file_name}"
+                    f"[log_id={log.id}] Deleted total of {total_deleted} DLQ record(s) for file: {source_filename}"
                 )
             except Exception as e:
                 session.rollback()
                 logger.error(
-                    f"[log_id={log.id}] Failed to delete DLQ records for file: {file_name}: {e}"
+                    f"[log_id={log.id}] Failed to delete DLQ records for file: {source_filename}: {e}"
                 )
                 raise
 
@@ -664,31 +669,31 @@ class FileProcessor:
                         )
                         continue
 
-                    file_name = reader.file_path.name
+                    source_filename = reader.file_path.name
                     log = FileLoadLog(
-                        file_name=file_name,
+                        source_filename=source_filename,
                         started_at=pendulum.now("UTC"),
                     )
-                    log.id = self._log_start(log.file_name, log.started_at)
+                    log.id = self._log_start(log.source_filename, log.started_at)
 
-                    if self._check_duplicate_file(reader.source, file_name):
+                    if self._check_duplicate_file(reader.source, source_filename):
                         logger.warning(
-                            f"[log_id={log.id}] File {file_name} has already been processed - moving to duplicates directory"
+                            f"[log_id={log.id}] File {source_filename} has already been processed - moving to duplicates directory"
                         )
                         self._move_to_duplicates(file_path, duplicates_path)
                         log.duplicate_skipped = True
                         logger.info(
-                            f"[log_id={log.id}] Successfully moved duplicate file {file_name} to duplicates directory"
+                            f"[log_id={log.id}] Successfully moved duplicate file {source_filename} to duplicates directory"
                         )
                         if reader.source.notification_emails:
                             error_message = (
-                                f"The file {file_name} has already been processed and has been moved to the duplicates directory.\n\n"
+                                f"The file {source_filename} has already been processed and has been moved to the duplicates directory.\n\n"
                                 f"To reprocess this file:\n"
-                                f"1. Existing records need to be removed from the target table where source_filename = '{file_name}'\n"
+                                f"1. Existing records need to be removed from the target table where source_filename = '{source_filename}'\n"
                                 f"2. Move the file from the duplicates directory back to the processing directory"
                             )
                             send_failure_notification(
-                                file_name=file_name,
+                                file_name=source_filename,
                                 error_type="Duplicate File Detected",
                                 error_message=error_message,
                                 log_id=log.id,
@@ -720,7 +725,7 @@ class FileProcessor:
                         self._log_update(log)
 
                     results.append(
-                        log.model_dump(include={"id", "file_name", "success"})
+                        log.model_dump(include={"id", "source_filename", "success"})
                     )
                 except tuple(FILE_ERROR_EXCEPTIONS) as e:
                     logger.error(f"[log_id={log.id}] {e}")
@@ -741,7 +746,7 @@ class FileProcessor:
                     results.append(
                         {
                             "id": log.id,
-                            "file_name": file_path.name,
+                            "source_filename": file_path.name,
                             "success": False,
                             "error_type": e.error_type,
                             "error_message": str(e),
@@ -760,7 +765,7 @@ class FileProcessor:
                     results.append(
                         {
                             "id": log.id if log else None,
-                            "file_name": file_path.name,
+                            "source_filename": file_path.name,
                             "success": False,
                             "error_type": type(e).__name__,
                             "error_message": str(e),

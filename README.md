@@ -234,7 +234,9 @@ The `file_load_log` table automatically tracks detailed metrics for every file p
 - **Merge Phase**: Records inserted/updated in target table counts, start/end timestamps
 - **Overall Status**: Success/failure status for the entire run, start/end timestamps, exception error type
 
-All metrics are logged automatically throughout the process, providing complete visibility into each stage of the ETL pipeline.
+All metrics are logged automatically throughout the process, providing complete visibility into each stage of the ETL pipeline.   
+
+The table includes an index on `source_filename` for efficient querying.
 
 >Note: The Processing and Staging phases timeframes overlap because they are iterators chained together. So they  are effectively operating at the same time in a stream. Adding up the individual timeframes of the phases will not equal the overall time frame (`started_at`, `ended_at`), which accurately tracks the whole process.
 

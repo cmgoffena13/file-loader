@@ -160,7 +160,9 @@ def test_csv_duplicate_file_moved_to_duplicates(test_csv_file, temp_sqlite_db):
                 # Verify email notification was sent
                 assert mock_notification.called
                 call_args = mock_notification.call_args
-                assert call_args[1]["file_name"] == test_csv_file.name
+                assert (
+                    call_args[1]["file_name"] == test_csv_file.name
+                )  # notification function parameter
                 assert call_args[1]["error_type"] == "Duplicate File Detected"
                 assert "has already been processed" in call_args[1]["error_message"]
                 assert call_args[1]["recipient_emails"] == ["test@example.com"]

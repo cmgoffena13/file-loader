@@ -7,7 +7,7 @@ from pydantic_extra_types.pendulum_dt import DateTime
 
 class FileLoadLog(BaseModel):
     id: Optional[int] = None
-    file_name: str
+    source_filename: str
     started_at: DateTime
     duplicate_skipped: Optional[bool] = None
     archive_copy_started_at: Optional[DateTime] = None

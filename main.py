@@ -24,12 +24,12 @@ def main():
 
             failure_details = []
             for failure in code_failures:
-                file_name = failure.get("file_name", "Unknown")
+                source_filename = failure.get("source_filename", "Unknown")
                 error_type = failure.get("error_type", "Unknown Error")
                 error_message = failure.get("error_message", "No error details")
                 log_id = failure.get("id")
 
-                detail = f"• {file_name}"
+                detail = f"• {source_filename}"
                 if log_id:
                     detail += f" (log_id: {log_id})"
                 detail += f": {error_type}"
