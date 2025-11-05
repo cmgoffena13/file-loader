@@ -7,7 +7,6 @@ import csv
 import json
 from pathlib import Path
 
-import pendulum
 import pyexcel
 import pytest
 from sqlalchemy import MetaData
