@@ -15,6 +15,7 @@ class BaseReader(ABC):
 
     def _validate_fields(self, actual_fields: set[str]) -> None:
         actual_fields_lowered = set[str](field.lower() for field in actual_fields)
+        # Check that all model fields exist as columns in the file (both required and optional)
         expected_fields = set[str](
             field.alias.lower() if field.alias else name.lower()
             for name, field in self.source.source_model.model_fields.items()

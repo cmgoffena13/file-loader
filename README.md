@@ -18,6 +18,10 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
   - [Dead Letter Queue](#dead-letter-queue)
     - [DLQ Report](#dlq-report)
     - [DLQ Cleanup on Reprocessing](#dlq-cleanup-on-reprocessing)
+  - [Quality / Audit Checks](#quality--audit-checks)
+    - [Pydantic Model Validation](#pydantic-model-validation)
+    - [Dataset Audits](#dataset-audits)
+- [Logfire Integration](#logfire-integration)
 - [How to Add a New Source](#how-to-add-a-new-source)
   - [Step 1: Create the System Directory (if new system)](#step-1-create-the-system-directory-if-new-system)
   - [Step 2: Create the Source File](#step-2-create-the-source-file)
@@ -56,11 +60,13 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - **Audit Framework**: Configurable audit queries to ensure data quality
 - **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures
 - **Error Isolation**: Errors in one file do not stop processing of other files - each file is processed independently with errors logged to `file_load_log` table and optional notification firing
+- **Observability & Distributed Tracing**: Optional Logfire integration using spans to associate logs with specific file processing operations for easier debugging
 - **Notifications**: 
   - Email notifications to business stakeholders for file-based issues:
     - No Header detected
     - Missing required columns/fields
     - Record validation error threshold exceeded
+    - Grain validation failed (duplicate grain values detected)
     - Dataset audits failed
     - Duplicate file detected (file already processed)
   - Slack notifications to Data Team for internal processing errors (code bugs, database failures) with detailed debugging information
@@ -115,6 +121,9 @@ Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex
 ### Batch Size (Optional)
 - `BATCH_SIZE`: Number of records per batch insert (default: 10000)
 
+### Logfire Logging (Optional)
+- `LOGFIRE_TOKEN`: Logfire token to send logs to Logfire project
+
 ## How It Works
 
 ### Initialization
@@ -123,19 +132,22 @@ Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex
 
 ### File Processing Pipeline
 
+Legend:
+ - 📧 = Step that when failed, sends email notifications to business stakeholders about file issue.
+
 The system uses **parallel processing** with threads to handle multiple files concurrently. Below is the process for **an individual file**:
 
 1. **File Discovery**: The file is discovered during a scan of the designated directory (`DIRECTORY_PATH`) for supported file types (CSV, Excel, JSON)
 
-2. **Early Duplicate Detection**: The system checks if this file has already been processed by querying the target table. If a duplicate is detected, the file is moved to the duplicates directory and processing is skipped (prevents accidental overwrites and directory clutter)
+2. **Early Duplicate Detection** 📧: The system checks if this file has already been processed by querying the target table. If a duplicate is detected, the file is moved to the duplicates directory and processing is skipped (prevents accidental overwrites and directory clutter)
 
 3. **Archive First**: The file is immediately copied to the archive directory before any processing begins (preserves original for recovery) - only for non-duplicate files
 
 4. **Pattern Matching**: The file name is matched against source configurations using pattern matching to determine the processing rules
 
-5. **Missing Header Detection**: The file is checked for required headers/fields (CSV/Excel) or field presence (JSON). Errors immediately if no header is found.
+5. **Missing Header Detection** 📧: The file is checked for required headers/fields (CSV/Excel) or field presence (JSON). If the header is not there, processing fails.
 
-6. **Missing Column Detection**: The file is checked for all required columns/fields. Errors immediately if any are missing.
+6. **Missing Column Detection** 📧: The file is checked for all required columns/fields. If any are missing, processing fails.
 
 7. **Dynamic Column Mapping**: Column names in the file are mapped using Pydantic field aliases to have database compatible names - supports flexible column naming in source files
 
@@ -143,25 +155,69 @@ The system uses **parallel processing** with threads to handle multiple files co
 
 9. **Iterative Row Processing**: Rows in the file are processed iteratively using generators for memory efficiency - handles large files without loading everything into memory
 
-10. **Record Validation**: Each record from the file is validated against the Pydantic model schema. Records that fail validation **do not** get inserted into the staging table. Instead, they are inserted into the Dead Letter Queue table.
+10. **Record Validation** 📧: Each record from the file is validated against the Pydantic model schema. Records that fail validation **do not** get inserted into the staging table. Instead, they are inserted into the Dead Letter Queue table. If the validation error threshold is exceeded, processing fails.
 
 11. **Staging Table Creation**: A unique staging table (`stage_{filename}`) is automatically created for this file, enabling parallel processing of multiple files targeting the same destination table
 
-12. **Chunked Inserts**: Validated records are inserted into the staging table in configurable batches (`BATCH_SIZE`) for memory efficiency (default 10,000)
+12. **Chunked Inserts**: Validated records are inserted into the staging table in configurable batches (`BATCH_SIZE`) for memory efficiency (default 10,000). Records that failed validation are inserted into the `file_load_dql` table in batches.
 
-13. **Data Auditing**: Configured audit queries are executed on the staging table (e.g., grain uniqueness checks). If any audit fails, the merge step is skipped and the file processing is marked as failed
+13. **Unique Grain Check** 📧: Validates that grain columns (unique identifier columns) have unique values across all records in the staging table. If duplicates are detected, processing fails.
 
-14. **MERGE Operation**: Data from the staging table is merged into the target table based on grain columns, handling inserts and updates appropriately
+14. **Data Auditing** 📧: Configured audit queries are executed on the staging table. If any audit fails, processing fails.
 
-15. **Dead Letter Queue Cleanup**: If this is a reprocessing run (DLQ records exist from a previous processing run for this file), all DLQ records for that filename are automatically deleted (in batches) after a successful merge. This keeps the DLQ table clean by removing records that have been successfully reprocessed.
+15. **MERGE Operation**: Data from the staging table is merged into the target table based on grain columns, handling inserts and updates appropriately
 
-16. **Cleanup**: The staging table is dropped and the original file is deleted from the directory. The archived copy remains for recovery if needed (simply move from archive back to directory to reprocess). If bad data got into the target table, then DELETE from the target table where `source_filename = {file_name}` and then reprocess.
+16. **Dead Letter Queue Cleanup**: If this is a reprocessing run (DLQ records exist from a previous processing run for this file), all DLQ records for that filename are automatically deleted (in batches) after a successful merge. This keeps the DLQ table clean by removing records that have been successfully reprocessed.
+
+17. **Cleanup**: The staging table is dropped and the original file is deleted from the directory. The archived copy remains for recovery if needed (simply move from archive back to directory to reprocess). If bad data got into the target table, then DELETE from the target table where `source_filename = {file_name}` and then reprocess.
 
 **Note on Duplicate Files**: Files that have already been processed are detected early (step 2) and moved to the `DUPLICATE_FILES_PATH` directory. This prevents directory clutter and accidental data overwrites. To reprocess a duplicate file, first DELETE the existing records from the target table where `source_filename = {file_name}`, then move the file from the duplicates directory back to `DIRECTORY_PATH`.
 
 17. **Failure Notifications**: 
-    - **Email**: If `notification_emails` is configured for a source, email notifications are automatically sent to business owners when files fail (missing headers, missing columns, validation threshold exceeded, audit failures, duplicate files). The data team (configured via `DATA_TEAM_EMAIL`) is always CC'd. Notifications include error details, log_id for reference, and sample validation errors when applicable.
+    - **Email**: If `notification_emails` is configured for a source, email notifications are automatically sent to business owners when the process fails due to a file issue. The data team (configured via `DATA_TEAM_EMAIL`) is always CC'd for visibility. Notifications include relevant file info and sample validation errors when applicable.
     - **Slack**: Internal processing errors (code bugs, database connection failures, system exceptions) are automatically sent to Slack if `SLACK_WEBHOOK_URL` is configured. These are separate from file-related issues and include system information.
+
+### Quality / Audit Checks
+
+The system provides two levels of quality checks to ensure data integrity:
+
+#### Pydantic Model Validation
+
+Pydantic model validation provides field-level validation rules that are automatically applied to each record. You can implement various validation constraints in your Pydantic model:
+
+- **String length**: Use `Field(max_length=100)` to limit the maximum length of string fields. Note: HIGHLY RECOMMEND you do this for all string fields if you use SQL Server, otherwise it implements NVARCHAR(MAX) for the data type with the table *yikes*
+- **Min/Max values**: Use `Field(ge=0, le=100)` for numeric fields to enforce minimum and maximum values
+- **Specific categories**: Use `Literal` types or `Field` constraints to restrict values to specific allowed categories
+- **Type validation**: Automatic type checking (int, float, date, datetime, etc.) with proper parsing and conversion. Supports Pendulum date/datetime types via `pydantic-extra-types[pendulum]` for enhanced date handling
+- **Required fields**: All fields in the Pydantic model must exist as columns in the file (both required and optional fields). Fields without `Optional` are required to have a value in each record. Optional fields can have missing/null values in records. During record validation, Pydantic will fail if a required field has a missing/null value in a record
+- **Custom validators**: Implement custom validation logic using Pydantic validators for complex business rules
+
+Records that fail validation are automatically inserted into the Dead Letter Queue (`file_load_dlq`) table with detailed error information, including the column name, invalid value, error type, and error message. If the validation error threshold is exceeded (configured via `validation_error_threshold`), the entire file processing fails and an email notification is sent to business stakeholders.
+
+#### Dataset Audits
+
+Dataset audits provide holistic checks across the entire dataset using SQL queries defined in the `audit_query` configuration. These audits run after all records are inserted into the staging table and validate data quality at the dataset level rather than individual records.
+
+Audit queries should:
+- Use the `{table}` placeholder which will be replaced with the staging table name
+- Return a CASE statement that evaluates to `1` for success and `0` for failure
+- Check business rules, data quality metrics, or dataset-level constraints
+
+Example audit queries:
+- Aggregate value checks (e.g., total sales amount within expected range)
+- Business rule validations (e.g., date ranges valid)
+
+Example Query (sale_date has to be within the last 30 days)
+```sql
+SELECT
+CASE 
+  WHEN SUM(
+    CASE WHEN sale_date BETWEEN DATEADD(day, -30, GETDATE()) AND GETDATE() THEN 1 ELSE 0 END
+    ) = COUNT(*) THEN 1 ELSE 0 END AS sale_date_within_last_30_days
+FROM {table}
+```
+
+If any audit query fails, the merge step is skipped, the file processing is marked as failed, and an email notification is sent to business stakeholders with audit failure details.
 
 ### Detailed Logging
 
@@ -223,6 +279,30 @@ ORDER BY file_row_number
 #### DLQ Cleanup on Reprocessing
 
 When a file is reprocessed and the merge succeeds, the system automatically detects if DLQ records exist from a previous processing run. If they do, all DLQ records for that filename are deleted to keep the DLQ table clean. This ensures that successfully reprocessed records don't clutter the DLQ table.
+
+## Logfire Integration
+
+Logfire provides distributed tracing and observability for file processing operations. When enabled, each file processing operation is wrapped in a span that automatically associates all logs with that specific file, making it easy to trace logs and debug issues.
+
+![Logfire Dashboard](logfire.png)
+
+### How It Works
+
+When `{DEV|TEST|PROD}_LOGFIRE_TOKEN` is configured:
+- Each file processing operation creates a span named after the file being processed
+- All logs generated during file processing are automatically associated with that span
+- SQLAlchemy engine logs are captured separately at INFO level
+- Application logs are sent to Logfire at DEBUG level (development) or INFO level (production)
+
+This allows you to:
+- View all logs for a specific file processing run in one place
+- Trace the complete lifecycle of a file from start to finish
+- Debug issues by correlating logs with specific file operations
+- Monitor performance and identify bottlenecks
+
+The system gracefully falls back to console-only logging if `LOGFIRE_TOKEN` is not provided, so Logfire is completely optional. You can create a [free account](https://logfire-us.pydantic.dev) to get 1,000,000 requests per month though.
+
+> Hint: Disable the sqlalchemy.engine logging and you'd stay below the one million requests per month threshold for a LONG time.
 
 ## How to Add a New Source
 
