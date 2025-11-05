@@ -51,6 +51,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
   - Writes data into a staging table
   - Audits the staging data
   - Publishes to target table
+- **Automatic Grain Validation**: Automatic grain validation check based upon grain in config
 - **Audit Framework**: Configurable audit queries to ensure data quality
 - **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures
 - **Error Isolation**: Errors in one file do not stop processing of other files - each file is processed independently with errors logged to `file_load_log` table and optional notification firing

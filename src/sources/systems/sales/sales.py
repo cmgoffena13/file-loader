@@ -20,7 +20,9 @@ SALES = CSVSource(
     table_name="transactions",
     grain=["transaction_id"],
     audit_query="""
-        SELECT CASE WHEN COUNT(DISTINCT transaction_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
+        SELECT 
+        CASE WHEN SUM(CASE WHEN total_amount > 0 THEN 1 ELSE 0 END) = COUNT(*) THEN 1 ELSE 0 END AS total_amount_positive,
+        CASE WHEN SUM(CASE WHEN unit_price > 0 THEN 1 ELSE 0 END) = COUNT(*) THEN 1 ELSE 0 END AS unit_price_positive
         FROM {table}
     """,
     delimiter=",",

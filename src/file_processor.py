@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.db import (
     calculate_batch_size,
+    create_grain_validation_sql,
     create_merge_sql,
     create_row_hash,
     create_stage_table,
@@ -23,6 +24,7 @@ from src.db import (
 from src.exceptions import (
     FILE_ERROR_EXCEPTIONS,
     AuditFailedError,
+    GrainValidationError,
     ValidationThresholdExceededError,
 )
 from src.notifications import send_failure_notification
@@ -367,6 +369,27 @@ class FileProcessor:
                 raise
 
     @retry()
+    def _validate_grain(
+        self, source: DataSource, stage_table_name: str, source_filename: str
+    ):
+        with self.Session() as session:
+            grain_sql = create_grain_validation_sql(source)
+            grain_sql = grain_sql.format(table=stage_table_name)
+            result = session.execute(text(grain_sql)).fetchone()
+            if result._mapping["grain_unique"] == 0:
+                grain_aliases = [
+                    get_field_alias(source, grain_field) for grain_field in source.grain
+                ]
+                error_msg_parts = [
+                    f"Grain values are not unique for file: {source_filename}",
+                    f"Table: {stage_table_name}",
+                    f"Grain columns (file column names): {', '.join(grain_aliases)}",
+                ]
+                error_msg = "\n".join(error_msg_parts)
+                raise GrainValidationError(error_msg)
+        return True
+
+    @retry()
     def _audit_data(
         self,
         stage_table_name: str,
@@ -375,6 +398,9 @@ class FileProcessor:
         log: FileLoadLog,
     ) -> FileLoadLog:
         log.audit_started_at = pendulum.now()
+
+        self._validate_grain(source, stage_table_name, source_filename)
+
         with self.Session() as session:
             audit_sql = text(source.audit_query.format(table=stage_table_name).strip())
 
@@ -397,20 +423,6 @@ class FileProcessor:
                     f"Table: {stage_table_name}",
                     f"Failed audits: {', '.join(failed_audits)}",
                 ]
-
-                grain_related_audits = [
-                    audit for audit in failed_audits if "grain_unique" in audit.lower()
-                ]
-
-                if grain_related_audits and source.grain:
-                    grain_aliases = [
-                        get_field_alias(source, grain_field)
-                        for grain_field in source.grain
-                    ]
-
-                    error_msg_parts.append(
-                        f"Grain columns (file column names): {', '.join(grain_aliases)}"
-                    )
 
                 error_msg = "\n".join(error_msg_parts)
                 raise AuditFailedError(error_msg)

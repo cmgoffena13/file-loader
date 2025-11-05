@@ -44,7 +44,7 @@ class DataSource(BaseModel):
     source_model: Type[TableModel]
     table_name: str
     grain: list[str]
-    audit_query: str
+    audit_query: Optional[str] = None
     validation_error_threshold: float = Field(default=0.0)
     notification_emails: Optional[list[str]] = Field(
         default=None

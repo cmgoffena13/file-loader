@@ -1,3 +1,7 @@
+class GrainValidationError(Exception):
+    error_type = "Grain Validation Error"
+
+
 class AuditFailedError(Exception):
     error_type = "Audit Failed"
 
@@ -20,4 +24,5 @@ FILE_ERROR_EXCEPTIONS = {
     MissingColumnsError,
     ValidationThresholdExceededError,
     AuditFailedError,
+    GrainValidationError,
 }

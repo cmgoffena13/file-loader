@@ -20,7 +20,9 @@ INVENTORY = ExcelSource(
     table_name="products",
     grain=["sku"],
     audit_query="""
-        SELECT CASE WHEN COUNT(DISTINCT sku) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
+        SELECT 
+        CASE WHEN SUM(CASE WHEN price > 0 THEN 1 ELSE 0 END) = COUNT(*) THEN 1 ELSE 0 END AS price_positive,
+        CASE WHEN SUM(CASE WHEN stock_quantity > 0 THEN 1 ELSE 0 END) = COUNT(*) THEN 1 ELSE 0 END AS stock_quantity_positive
         FROM {table}
     """,
     sheet_name="Products",
