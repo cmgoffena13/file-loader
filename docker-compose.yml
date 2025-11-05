@@ -27,6 +27,7 @@ services:
 
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
     container_name: file-loader-sqlserver
     environment:
       ACCEPT_EULA: "Y"
@@ -36,6 +37,27 @@ services:
       - "1433:1433"
     volumes:
       - sqlserver_data:/var/opt/mssql
+
+  sqlserver-init:
+    image: mcr.microsoft.com/mssql-tools
+    platform: linux/amd64
+    container_name: file-loader-sqlserver-init
+    depends_on:
+      - sqlserver
+    volumes:
+      - ./docker/sqlserver-init.sql:/init.sql
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        echo "Waiting for SQL Server to be ready..."
+        until /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P "FileLoader123!" -Q "SELECT 1" > /dev/null 2>&1
+        do
+          sleep 5
+        done
+        echo "Running initialization script..."
+        /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P "FileLoader123!" -i /init.sql
+        echo "Initialization complete."
 
 volumes:
   postgres_data:

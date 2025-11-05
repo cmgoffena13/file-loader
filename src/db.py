@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 from decimal import Decimal
@@ -6,6 +5,7 @@ from pathlib import Path
 from typing import Dict, Union, get_args, get_origin
 
 import xxhash
+from annotated_types import MaxLen
 from pydantic_extra_types.pendulum_dt import Date, DateTime
 from sqlalchemy import (
     JSON,
@@ -24,10 +24,10 @@ from sqlalchemy import (
     Table,
     Text,
     create_engine,
-    text,
 )
 from sqlalchemy import Date as SQLDate
 from sqlalchemy import DateTime as SQLDateTime
+from sqlalchemy.dialects import mssql
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Engine
 
@@ -43,7 +43,7 @@ TYPE_MAPPING = {
     float: Numeric,
     bool: Boolean,
     Decimal: Numeric,
-    DateTime: SQLDateTime,
+    DateTime: lambda: _get_timezone_aware_datetime_type(),
     Date: SQLDate,
 }
 
@@ -57,7 +57,11 @@ def _get_column_type(field_type):
             field_type = inner_types[0]
 
     if field_type in TYPE_MAPPING:
-        return TYPE_MAPPING[field_type]
+        mapped_type = TYPE_MAPPING[field_type]
+        # Call lambda if it's callable, otherwise return the type directly
+        if callable(mapped_type):
+            return mapped_type()
+        return mapped_type
 
     raise ValueError(f"Unsupported field type {field_type}")
 
@@ -76,7 +80,46 @@ def get_table_columns(source, include_timestamps: bool = True) -> list[Column]:
         )
 
         sqlalchemy_type = _get_column_type(field_type)
-        columns.append(Column(column_name, sqlalchemy_type, nullable=is_nullable))
+
+        is_string_type = (
+            sqlalchemy_type is String
+            or isinstance(sqlalchemy_type, String)
+            or (
+                isinstance(sqlalchemy_type, type)
+                and issubclass(sqlalchemy_type, String)
+            )
+        )
+
+        if is_string_type:
+            max_length = None
+            if field_info.metadata:
+                for meta in field_info.metadata:
+                    if isinstance(meta, MaxLen):
+                        max_length = meta.max_length
+                        break
+
+            # SQL Server requires explicit length - default to 255 if not specified
+            if max_length is None and config.DRIVERNAME == "mssql":
+                max_length = 255
+
+            if max_length is not None:
+                sqlalchemy_type = String(max_length)
+            else:
+                sqlalchemy_type = String()
+
+        # For SQL Server, grain columns (primary keys) should not be identity columns
+        autoincrement = None
+        if config.DRIVERNAME == "mssql" and column_name in source.grain:
+            autoincrement = False
+
+        columns.append(
+            Column(
+                column_name,
+                sqlalchemy_type,
+                nullable=is_nullable,
+                autoincrement=autoincrement,
+            )
+        )
 
     # SQLite requires Integer for auto-increment primary keys and foreign keys
     id_column_type = Integer if config.DRIVERNAME == "sqlite" else BigInteger
@@ -84,16 +127,40 @@ def get_table_columns(source, include_timestamps: bool = True) -> list[Column]:
     columns.extend(
         [
             Column("etl_row_hash", LargeBinary(32), nullable=False),
-            Column("source_filename", String, nullable=False),
+            Column("source_filename", String(255), nullable=False),
             Column("file_load_log_id", id_column_type, nullable=False),
         ]
     )
 
     if include_timestamps:
-        columns.append(Column("etl_created_at", SQLDateTime, nullable=False))
-        columns.append(Column("etl_updated_at", SQLDateTime, nullable=True))
+        datetime_type = _get_timezone_aware_datetime_type()
+        columns.append(Column("etl_created_at", datetime_type, nullable=False))
+        columns.append(Column("etl_updated_at", datetime_type, nullable=True))
 
     return columns
+
+
+def _get_timezone_aware_datetime_type():
+    """Get the appropriate timezone-aware DateTime type for the current database dialect."""
+    drivername = config.DRIVERNAME
+
+    datetime_type_mapping = {
+        "postgresql": SQLDateTime(timezone=True),  # TIMESTAMPTZ
+        "mysql": SQLDateTime(
+            timezone=False
+        ),  # DATETIME doesn't support timezone, convert to UTC
+        "mssql": mssql.DATETIMEOFFSET(2),  # DATETIMEOFFSET
+        "sqlite": SQLDateTime(timezone=True),  # TEXT, timezone stored in value
+    }
+
+    for dialect_key, datetime_type in datetime_type_mapping.items():
+        if dialect_key == drivername:
+            return datetime_type
+
+    logger.warning(
+        f"Unknown database dialect '{drivername}', defaulting to DateTime(timezone=True)"
+    )
+    return SQLDateTime(timezone=True)
 
 
 def _get_json_column_type(engine: Engine):
@@ -185,7 +252,7 @@ def create_merge_sql(
                 UPDATE SET {update_set}
             WHEN NOT MATCHED THEN
                 INSERT ({insert_columns})
-                VALUES ({insert_values})
+                VALUES ({insert_values});
         """
 
     return merge_sql
@@ -246,36 +313,37 @@ def create_tables() -> Engine:
 
     # SQLite requires Integer for auto-increment primary keys
     id_column_type = Integer if config.DRIVERNAME == "sqlite" else BigInteger
+    datetime_type = _get_timezone_aware_datetime_type()
 
     file_load_log = Table(
         "file_load_log",
         metadata,
         Column("id", id_column_type, primary_key=True, autoincrement=True),
-        Column("file_name", String, nullable=False),
-        Column("started_at", SQLDateTime, nullable=False),
+        Column("file_name", String(255), nullable=False),
+        Column("started_at", datetime_type, nullable=False),
         Column("duplicate_skipped", Boolean, nullable=True),
         # archive copy phase
-        Column("archive_copy_started_at", SQLDateTime, nullable=True),
-        Column("archive_copy_ended_at", SQLDateTime, nullable=True),
+        Column("archive_copy_started_at", datetime_type, nullable=True),
+        Column("archive_copy_ended_at", datetime_type, nullable=True),
         Column("archive_copy_success", Boolean, nullable=True),
         # processing phase
-        Column("processing_started_at", SQLDateTime, nullable=True),
-        Column("processing_ended_at", SQLDateTime, nullable=True),
+        Column("processing_started_at", datetime_type, nullable=True),
+        Column("processing_ended_at", datetime_type, nullable=True),
         Column("processing_success", Boolean, nullable=True),
         # stage load phase
-        Column("stage_load_started_at", SQLDateTime, nullable=True),
-        Column("stage_load_ended_at", SQLDateTime, nullable=True),
+        Column("stage_load_started_at", datetime_type, nullable=True),
+        Column("stage_load_ended_at", datetime_type, nullable=True),
         Column("stage_load_success", Boolean, nullable=True),
         # audit phase
-        Column("audit_started_at", SQLDateTime, nullable=True),
-        Column("audit_ended_at", SQLDateTime, nullable=True),
+        Column("audit_started_at", datetime_type, nullable=True),
+        Column("audit_ended_at", datetime_type, nullable=True),
         Column("audit_success", Boolean, nullable=True),
         # merge phase
-        Column("merge_started_at", SQLDateTime, nullable=True),
-        Column("merge_ended_at", SQLDateTime, nullable=True),
+        Column("merge_started_at", datetime_type, nullable=True),
+        Column("merge_ended_at", datetime_type, nullable=True),
         Column("merge_success", Boolean, nullable=True),
         # summary
-        Column("ended_at", SQLDateTime, nullable=True),
+        Column("ended_at", datetime_type, nullable=True),
         Column("records_processed", Integer, nullable=True),
         Column("validation_errors", Integer, nullable=True),
         Column("records_stage_loaded", Integer, nullable=True),
@@ -295,7 +363,7 @@ def create_tables() -> Engine:
         "file_load_dlq",
         metadata,
         Column("id", id_column_type, primary_key=True, autoincrement=True),
-        Column("source_filename", String, nullable=False),
+        Column("source_filename", String(255), nullable=False),
         Column("file_row_number", Integer, nullable=False),
         Column("file_record_data", json_column_type, nullable=False),
         Column("validation_errors", json_column_type, nullable=False),
@@ -305,15 +373,15 @@ def create_tables() -> Engine:
             ForeignKey("file_load_log.id"),
             nullable=False,
         ),
-        Column("target_table_name", String, nullable=False),
-        Column("failed_at", SQLDateTime, nullable=False),
+        Column("target_table_name", String(255), nullable=False),
+        Column("failed_at", datetime_type, nullable=False),
     )
     Index("idx_dlq_file_load_log_id", file_load_dlq.c.file_load_log_id)
     Index(
         "idx_dlq_source_filename", file_load_dlq.c.source_filename, file_load_dlq.c.id
     )
     tables.append(file_load_dlq)
-    metadata.drop_all(engine, tables=[file_load_dlq])
+    metadata.drop_all(engine, tables=tables)
     metadata.create_all(engine, tables=tables)
     return engine
 
@@ -412,3 +480,26 @@ def create_grain_validation_sql(source: DataSource) -> str:
             raise ValueError(f"Unsupported database dialect: {drivername}")
 
     return grain_sql
+
+
+def create_duplicate_sql(source: DataSource, limit: int = 5) -> str:
+    drivername = config.DRIVERNAME
+
+    if drivername == "mssql":
+        top_clause = f"SELECT TOP({limit})"
+        bottom_clause = ""
+    else:
+        top_clause = "SELECT"
+        bottom_clause = f"LIMIT {limit}"
+
+    grain_cols = ", ".join(source.grain)
+    duplicate_sql = f"""
+    {top_clause}
+    {grain_cols},
+    COUNT(*) as duplicate_count
+    FROM {{table}}
+    GROUP BY {grain_cols}
+    HAVING COUNT(*) > 1
+    {bottom_clause}
+    """
+    return duplicate_sql

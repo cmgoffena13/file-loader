@@ -109,6 +109,7 @@ def main():
             log_id=None,
             error_location=get_error_location(e),
         )
+        raise
 
 
 if __name__ == "__main__":

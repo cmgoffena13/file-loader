@@ -1,17 +1,18 @@
+from pydantic import Field
 from pydantic_extra_types.pendulum_dt import Date
 
 from src.sources.base import CSVSource, TableModel
 
 
 class Transaction(TableModel):
-    transaction_id: str
-    customer_id: str
-    product_sku: str
+    transaction_id: str = Field(max_length=100)
+    customer_id: str = Field(max_length=100)
+    product_sku: str = Field(max_length=100)
     quantity: int
     unit_price: float
     total_amount: float
     sale_date: Date
-    sales_rep: str
+    sales_rep: str = Field(max_length=100)
 
 
 SALES = CSVSource(

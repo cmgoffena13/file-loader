@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.db import (
     calculate_batch_size,
+    create_duplicate_sql,
     create_grain_validation_sql,
     create_merge_sql,
     create_row_hash,
@@ -103,7 +104,7 @@ class FileProcessor:
         with self.Session() as session:
             try:
                 check_sql = text(
-                    f"SELECT EXISTS(SELECT 1 FROM {source.table_name} WHERE source_filename = :filename)"
+                    f"SELECT CASE WHEN EXISTS(SELECT 1 FROM {source.table_name} WHERE source_filename = :filename) THEN 1 ELSE 0 END"
                 )
                 result = session.execute(
                     check_sql, {"filename": source_filename}
@@ -167,7 +168,8 @@ class FileProcessor:
         for index, record in enumerate(reader, 1):
             passed = True
             try:
-                reader.source.source_model.model_validate(record)
+                validated_record = reader.source.source_model.model_validate(record)
+                record = validated_record.model_dump(mode="json")
             except ValidationError as e:
                 validation_errors += 1
                 records_processed += 1
@@ -377,6 +379,10 @@ class FileProcessor:
             grain_sql = grain_sql.format(table=stage_table_name)
             result = session.execute(text(grain_sql)).fetchone()
             if result._mapping["grain_unique"] == 0:
+                duplicate_sql = create_duplicate_sql(source)
+                duplicate_sql = duplicate_sql.format(table=stage_table_name)
+                duplicate_records = session.execute(text(duplicate_sql)).fetchall()
+
                 grain_aliases = [
                     get_field_alias(source, grain_field) for grain_field in source.grain
                 ]
@@ -384,7 +390,20 @@ class FileProcessor:
                     f"Grain values are not unique for file: {source_filename}",
                     f"Table: {stage_table_name}",
                     f"Grain columns (file column names): {', '.join(grain_aliases)}",
+                    "Example duplicate grain violations:",
                 ]
+                for record in duplicate_records:
+                    record_dict = dict(record._mapping)
+                    aliased_record = {
+                        get_field_alias(source, grain_field): record_dict[grain_field]
+                        for grain_field in source.grain
+                    }
+                    aliased_record["duplicate_count"] = record_dict["duplicate_count"]
+                    record_str = ", ".join(
+                        f"{k}: {v}" for k, v in aliased_record.items()
+                    )
+                    error_msg_parts.append(f"  - {record_str}")
+
                 error_msg = "\n".join(error_msg_parts)
                 raise GrainValidationError(error_msg)
         return True
@@ -400,6 +419,12 @@ class FileProcessor:
         log.audit_started_at = pendulum.now()
 
         self._validate_grain(source, stage_table_name, source_filename)
+
+        # If no custom audit_query is provided, only grain validation runs
+        if source.audit_query is None:
+            log.audit_ended_at = pendulum.now()
+            log.audit_success = True
+            return log
 
         with self.Session() as session:
             audit_sql = text(source.audit_query.format(table=stage_table_name).strip())

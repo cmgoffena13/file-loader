@@ -23,11 +23,11 @@ dev-postgres: reset
 dev-mysql: reset
 	docker compose up -d mysql
 	sleep 1
-	DEV_DATABASE_URL=mysql://fileloader:fileloader@localhost:3306/fileloader uv run python main.py
+	DEV_DATABASE_URL=mysql+pymysql://fileloader:fileloader@localhost:3306/fileloader uv run python main.py
 
 dev-sqlserver: reset
-	docker compose up -d sqlserver
-	sleep 1
+	docker compose up -d sqlserver sqlserver-init
+	sleep 5
 	DEV_DATABASE_URL=mssql+pyodbc://sa:FileLoader123!@localhost:1433/fileloader?driver=ODBC+Driver+17+for+SQL+Server uv run python main.py
 
 reset:
