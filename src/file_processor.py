@@ -705,23 +705,11 @@ class FileProcessor:
                         self._log_update(log)
                         continue
                     try:
-                        # Process file and get iterator (which may store failed records in log)
                         records_iterator = self._process_file(
                             file_path, archive_path, reader, log
                         )
                         log = self._load_records(records_iterator, reader, log)
                         log.success = True
-
-                        # Insert failed records into DLQ if DLQ is enabled and there are failures
-                        if (
-                            hasattr(log, "_dlq_failed_records")
-                            and log._dlq_failed_records
-                        ):
-                            self._insert_dlq_records(
-                                log._dlq_failed_records, reader, log
-                            )
-                            # Clean up the temporary attribute
-                            delattr(log, "_dlq_failed_records")
                     finally:
                         log.ended_at = pendulum.now("UTC")
                         log.success = False if log.success is None else log.success
