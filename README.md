@@ -236,6 +236,8 @@ The `file_load_log` table automatically tracks detailed metrics for every file p
 
 All metrics are logged automatically throughout the process, providing complete visibility into each stage of the ETL pipeline.
 
+>Note: The Processing and Staging phases timeframes overlap because they are iterators chained together. So they  are effectively operating at the same time in a stream. Adding up the individual timeframes of the phases will not equal the overall time frame (`started_at`, `ended_at`), which accurately tracks the whole process.
+
 ### Dead Letter Queue
 
 The `file_load_dlq` automatically captures all records that fail validation during file processing:
