@@ -321,16 +321,25 @@ def create_tables() -> Engine:
 def get_delete_dlq_sql() -> str:
     drivername = config.DRIVERNAME
 
-    if drivername == "postgresql":
-        delete_sql = "DELETE FROM file_load_dlq WHERE source_filename = :file_name"
-    elif drivername == "mysql":
-        delete_sql = "DELETE FROM file_load_dlq WHERE source_filename = :file_name"
-    elif drivername == "mssql":
-        delete_sql = "DELETE FROM file_load_dlq WHERE source_filename = :file_name"
-    elif drivername == "sqlite":
-        delete_sql = "DELETE FROM file_load_dlq WHERE source_filename = :file_name"
+    if drivername == "mssql":
+        delete_sql = (
+            "DELETE TOP(:limit) FROM file_load_dlq WHERE source_filename = :file_name"
+        )
+    elif drivername in ["postgresql", "sqlite"]:
+        # PostgreSQL, Sqlite doesn't support LIMIT in DELETE, use subquery with id
+        delete_sql = """
+            DELETE FROM file_load_dlq 
+            WHERE id IN (
+                SELECT id FROM file_load_dlq 
+                WHERE source_filename = :file_name 
+                LIMIT :limit
+            )
+        """
     else:
-        raise ValueError(f"Unsupported database dialect: {drivername}")
+        # MySQL supports LIMIT directly
+        delete_sql = (
+            "DELETE FROM file_load_dlq WHERE source_filename = :file_name LIMIT :limit"
+        )
 
     return delete_sql
 

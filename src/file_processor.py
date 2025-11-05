@@ -524,11 +524,22 @@ class FileProcessor:
     def _delete_dlq_records(self, file_name: str, log: FileLoadLog):
         with self.Session() as session:
             delete_sql = text(get_delete_dlq_sql())
+            total_deleted = 0
+
             try:
-                session.execute(delete_sql, {"file_name": file_name})
-                session.commit()
+                while True:
+                    result = session.execute(
+                        delete_sql, {"file_name": file_name, "limit": config.BATCH_SIZE}
+                    )
+                    session.commit()
+
+                    if result.rowcount == 0:
+                        break
+
+                    total_deleted += result.rowcount
+
                 logger.info(
-                    f"[log_id={log.id}] Deleted DLQ records for file: {file_name}"
+                    f"[log_id={log.id}] Deleted total of {total_deleted} DLQ record(s) for file: {file_name}"
                 )
             except Exception as e:
                 session.rollback()
