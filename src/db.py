@@ -365,7 +365,11 @@ def create_tables() -> Engine:
         Column("success", Boolean, nullable=True),
         Column("error_type", String(50), nullable=True),
     )
-    Index("idx_file_load_log_source_filename", file_load_log.c.source_filename)
+    Index(
+        "idx_file_load_log_source_filename",
+        file_load_log.c.source_filename,
+        file_load_log.c.id,
+    )
     tables.append(file_load_log)
 
     # Dead Letter Queue table for validation failures

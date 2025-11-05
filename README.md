@@ -22,19 +22,9 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
     - [Pydantic Model Validation](#pydantic-model-validation)
     - [Dataset Audits](#dataset-audits)
 - [Logfire Integration](#logfire-integration)
+- [Reporting](#reporting)
 - [How to Add a New Source](#how-to-add-a-new-source)
-  - [Step 1: Create the System Directory (if new system)](#step-1-create-the-system-directory-if-new-system)
-  - [Step 2: Create the Source File](#step-2-create-the-source-file)
-  - [Step 3: Register the Source](#step-3-register-the-source)
-  - [Required Fields](#required-fields)
-  - [Optional Fields](#optional-fields)
-  - [Format-Specific Fields](#format-specific-fields)
 - [How to Add a New Reader](#how-to-add-a-new-reader)
-  - [Step 1: Create the Reader Class](#step-1-create-the-reader-class)
-  - [Required Methods](#required-methods)
-  - [Step 2: Create Source Configuration](#step-2-create-source-configuration)
-  - [Step 3: Register the Reader](#step-3-register-the-reader)
-  - [Step 4: Use the Reader](#step-4-use-the-reader)
 
 
 ## Features
@@ -310,6 +300,44 @@ This allows you to:
 The system gracefully falls back to console-only logging if `LOGFIRE_TOKEN` is not provided, so Logfire is completely optional. You can create a [free account](https://logfire-us.pydantic.dev) to get 1,000,000 requests per month though.
 
 > Hint: Disable the sqlalchemy.engine logging and you'd stay below the one million requests per month threshold for a LONG time.
+
+## Reporting
+
+Below is a query I developed to monitor the `file_load_log` table. Shows you most relevant information and you can look at the table more closely if you need additional information.
+
+```sql
+;with CTE as (
+	select
+	id
+	from file_load_log
+	where source_filename like 'ledger%'
+)
+select
+l.id as file_load_id,
+cast(l.started_at as DATE) as start_date,
+l.source_filename,
+l.ended_at - l.started_at as run_time,  /* Postgres syntax, adapt to your DB */
+l.success,
+l.records_processed,
+l.validation_errors,
+l.records_stage_loaded as records_loaded_to_stage,
+l.target_inserts,
+l.target_updates,
+case 
+	when l.archive_copy_success is null then 'Archive Copy'
+	when l.processing_success is null then 'Processing'
+	when l.stage_load_success is null then 'Stage Load'
+	when l.audit_success is null then 'Audit'
+	when l.merge_success is null then 'Publish'
+	when l.success is null then 'Duplicate File'
+	when l.success then null
+else 'Unknown' end as stage_failed_at,
+l.error_type as failure_reason
+from file_load_log as l
+inner join CTE
+	on CTE.id = l.id
+order by l.id
+```
 
 ## How to Add a New Source
 
