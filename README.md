@@ -41,7 +41,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 
 ## Scalable
 
-- **Multiple File Formats**: Supports CSV, Excel (`.xlsx`, `.xls`), and JSON files
+- **Multiple File Formats**: Supports CSV, Excel (`.xlsx`, `.xls`), and JSON files. Gzip compression is automatically detected and handled for CSV and JSON formats (e.g., `file.csv.gz`, `file.json.gz`)
 - **Memory Efficient**: Uses iterative reading to handle large files without loading everything into memory
 - **Database Batch Operations**: Database Operations are batched to handle large armounts of data
 - **Parallel Processing**: Processes multiple files concurrently using thread pools

@@ -1,4 +1,5 @@
 import csv
+import gzip
 from pathlib import Path
 from typing import Any, Dict, Iterator
 
@@ -17,7 +18,13 @@ class CSVReader(BaseReader):
         self.skip_rows = skip_rows
 
     def read(self) -> Iterator[Dict[str, Any]]:
-        with open(self.file_path, "r", encoding=self.encoding, newline="") as csvfile:
+        # Use gzip.open() if file is gzipped, otherwise regular open()
+        file_opener = gzip.open if self.is_gzipped else open
+        file_mode = "rt" if self.is_gzipped else "r"
+
+        with file_opener(
+            self.file_path, file_mode, encoding=self.encoding, newline=""
+        ) as csvfile:
             reader = csv.DictReader(csvfile, delimiter=self.delimiter)
 
             # Check if headers exist

@@ -26,7 +26,7 @@ def process_directory() -> list[dict]:
         if (
             entry.is_file()
             and not entry.name.startswith(".")  # Skip hidden files
-            and Path(entry.path).suffix.lower() in supported_extensions
+            and ReaderFactory._get_extension(Path(entry.path)) in supported_extensions
         ):
             files.append(Path(entry.path))
 

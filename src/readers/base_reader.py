@@ -12,6 +12,8 @@ class BaseReader(ABC):
         self.source = source
         if not self.file_path.exists():
             raise FileNotFoundError(f"File not found: {self.file_path}")
+        self.suffixes = self.file_path.suffixes
+        self.is_gzipped = len(self.suffixes) >= 2 and self.suffixes[-1].lower() == ".gz"
 
     def _validate_fields(self, actual_fields: set[str]) -> None:
         actual_fields_lowered = set[str](field.lower() for field in actual_fields)

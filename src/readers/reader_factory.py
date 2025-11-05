@@ -13,11 +13,25 @@ class ReaderFactory:
         ".xlsx": ExcelReader,
         ".xls": ExcelReader,
         ".json": JSONReader,
+        ".csv.gz": CSVReader,
+        ".json.gz": JSONReader,
     }
 
     @classmethod
+    def _get_extension(cls, file_path: Path) -> str:
+        """Get the file extension, checking for compressed variants first."""
+        suffixes = file_path.suffixes
+        # Check for compressed extension first (e.g., .csv.gz)
+        if len(suffixes) >= 2:
+            combined = "".join(suffixes[-2:]).lower()
+            if combined in cls._readers:
+                return combined
+        # Fall back to single extension
+        return file_path.suffix.lower()
+
+    @classmethod
     def create_reader(cls, file_path: Path, source: DataSource, **kwargs) -> BaseReader:
-        extension = file_path.suffix.lower()
+        extension = cls._get_extension(file_path)
 
         if extension not in cls._readers:
             supported_extensions = ", ".join(cls._readers.keys())
