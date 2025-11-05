@@ -4,6 +4,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Dict, Union, get_args, get_origin
 
+import pendulum
 import xxhash
 from annotated_types import MaxLen
 from pydantic_extra_types.pendulum_dt import Date, DateTime
@@ -181,6 +182,22 @@ def _get_json_column_type(engine: Engine):
         f"Unknown database dialect '{drivername}', defaulting to JSON: {engine.url}"
     )
     return JSON
+
+
+def format_datetime_for_db(dt: pendulum.DateTime) -> str:
+    """Format datetime for database insert, accounting for database-specific requirements.
+
+    MySQL: 'YYYY-MM-DD HH:MM:SS.microseconds' (no timezone, space instead of T)
+    PostgreSQL/SQL Server/SQLite: ISO 8601 with timezone
+    """
+    drivername = config.DRIVERNAME
+
+    if drivername == "mysql":
+        # MySQL DATETIME doesn't support timezone, format as 'YYYY-MM-DD HH:MM:SS.microseconds'
+        return dt.format("YYYY-MM-DD HH:mm:ss.SSSSSS")
+    else:
+        # PostgreSQL, SQL Server, SQLite support ISO 8601 with timezone
+        return dt.to_iso8601_string()
 
 
 def create_merge_sql(

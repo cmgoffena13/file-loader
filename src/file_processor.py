@@ -21,6 +21,7 @@ from src.db import (
     create_row_hash,
     create_stage_table,
     create_tables,
+    format_datetime_for_db,
     get_delete_dlq_sql,
     get_table_columns,
 )
@@ -483,7 +484,7 @@ class FileProcessor:
                     [f"target.{col} = stage.{col}" for col in source.grain]
                 )
 
-                now_iso = pendulum.now("UTC").to_iso8601_string()
+                now_iso = format_datetime_for_db(pendulum.now("UTC"))
 
                 update_columns = [col for col in columns if col not in source.grain]
 
