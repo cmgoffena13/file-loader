@@ -39,6 +39,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 
 - **Multiple File Formats**: Supports CSV, Excel (`.xlsx`, `.xls`), and JSON files
 - **Memory Efficient**: Uses iterative reading to handle large files without loading everything into memory
+- **Database Batch Operations**: Database Operations are batched to handle large armounts of data
 - **Parallel Processing**: Processes multiple files concurrently using thread pools
 - **Flexible Database Support**: PostgreSQL, MySQL, and SQL Server Compatability
 - **Proper Indexing**: Table indexing strategy that supports high data volumes
@@ -142,7 +143,7 @@ The system uses **parallel processing** with threads to handle multiple files co
 
 9. **Iterative Row Processing**: Rows in the file are processed iteratively using generators for memory efficiency - handles large files without loading everything into memory
 
-10. **Record Validation**: Each record from the file is validated against the Pydantic model schema. Records that fail validation **do not** get inserted into the staging table. 
+10. **Record Validation**: Each record from the file is validated against the Pydantic model schema. Records that fail validation **do not** get inserted into the staging table. Instead, they are inserted into the Dead Letter Queue table.
 
 11. **Staging Table Creation**: A unique staging table (`stage_{filename}`) is automatically created for this file, enabling parallel processing of multiple files targeting the same destination table
 
@@ -152,7 +153,7 @@ The system uses **parallel processing** with threads to handle multiple files co
 
 14. **MERGE Operation**: Data from the staging table is merged into the target table based on grain columns, handling inserts and updates appropriately
 
-15. **DLQ Cleanup**: If this is a reprocessing run (DLQ records exist from a previous processing run for this file), all DLQ records for that filename are automatically deleted after a successful merge. This keeps the DLQ table clean by removing records that have been successfully reprocessed.
+15. **Dead Letter Queue Cleanup**: If this is a reprocessing run (DLQ records exist from a previous processing run for this file), all DLQ records for that filename are automatically deleted (in chunks) after a successful merge. This keeps the DLQ table clean by removing records that have been successfully reprocessed.
 
 16. **Cleanup**: The staging table is dropped and the original file is deleted from the directory. The archived copy remains for recovery if needed (simply move from archive back to directory to reprocess). If bad data got into the target table, then DELETE from the target table where `source_filename = {file_name}` and then reprocess.
 
