@@ -1,60 +1,8 @@
-import logging
-import os
-from pathlib import Path
-
 from src.exceptions import FILE_ERROR_EXCEPTIONS
-from src.file_processor import FileProcessor
+from src.logging_conf import configure_logging
 from src.notifications import send_slack_notification
-from src.readers.reader_factory import ReaderFactory
+from src.process import process_directory
 from src.retry import get_error_location
-from src.settings import config
-
-logging.basicConfig(
-    level=getattr(logging, config.LOG_LEVEL.upper()),
-    format="%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(message)s",
-)
-
-# Suppress noisy package loggers
-logging.getLogger("pyexcel").setLevel(logging.WARNING)
-logging.getLogger("pyexcel_io").setLevel(logging.WARNING)
-logging.getLogger("pyexcel.internal").setLevel(logging.WARNING)
-
-# Prevent SQLAlchemy logger from propagating to root (prevents duplicate query logs)
-logging.getLogger("sqlalchemy.engine").propagate = False
-
-logger = logging.getLogger(__name__)
-
-
-def process_directory() -> list[dict]:
-    directory = config.DIRECTORY_PATH
-
-    if not directory.exists():
-        raise FileNotFoundError(f"Directory not found: {directory}")
-
-    if not directory.is_dir():
-        raise ValueError(f"Path is not a directory: {directory}")
-
-    # Use os.scandir() for faster file discovery
-    supported_extensions = set(ReaderFactory.get_supported_extensions())
-    files = []
-
-    for entry in os.scandir(directory):
-        if (
-            entry.is_file()
-            and not entry.name.startswith(".")  # Skip hidden files
-            and Path(entry.path).suffix.lower() in supported_extensions
-        ):
-            files.append(Path(entry.path))
-
-    if not files:
-        logger.warning(f"No files found in directory: {directory}")
-        return []
-
-    processor = FileProcessor()
-
-    file_paths = [str(f) for f in files]
-
-    return processor.process_files_parallel(file_paths, config.ARCHIVE_PATH)
 
 
 def main():
@@ -113,4 +61,5 @@ def main():
 
 
 if __name__ == "__main__":
+    configure_logging()
     main()

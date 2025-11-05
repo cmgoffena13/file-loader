@@ -627,16 +627,6 @@ class FileProcessor:
             )
             return
 
-        logger.info(
-            f"[log_id={log.id}] _insert_dlq_records called with {len(failed_records)} records"
-        )
-        logger.debug(
-            f"[log_id={log.id}] First failed record keys: {list(failed_records[0].keys()) if failed_records else 'N/A'}"
-        )
-        logger.debug(
-            f"[log_id={log.id}] First failed record structure: {failed_records[0] if failed_records else 'N/A'}"
-        )
-
         dlq_table = self._get_file_load_dlq()
 
         with self.Session() as session:

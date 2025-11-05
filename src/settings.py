@@ -56,6 +56,8 @@ class GlobalConfig(BaseConfig):
             return v
         return Path(v) if v else v
 
+    LOGFIRE_TOKEN: Optional[str] = None
+
 
 class DevConfig(GlobalConfig):
     DIRECTORY_PATH: Path = Path("src/tests/test_data")
