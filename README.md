@@ -119,7 +119,7 @@ Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex
 
 ### Initialization
 
-- **Automatic Table Creation**: On startup, automatically creates (IF NOT EXISTS) all target tables, indexes, and the `file_load_log` table based on source configurations and Pydantic model schemas
+- **Automatic Table Creation**: On startup, automatically creates (IF NOT EXISTS) all target tables, indexes, and the `file_load_log` and `file_load_dlq` tables based on source configurations and Pydantic model schemas
 
 ### File Processing Pipeline
 
