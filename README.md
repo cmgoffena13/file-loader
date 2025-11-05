@@ -200,8 +200,9 @@ Dataset audits provide holistic checks across the entire dataset using SQL queri
 
 Audit queries should:
 - Use the `{table}` placeholder which will be replaced with the staging table name
-- Return a CASE statement that evaluates to `1` for success and `0` for failure
+- Return an aggregate CASE statement that evaluates to `1` for success and `0` for failure
 - Check business rules, data quality metrics, or dataset-level constraints
+- Return *only one* row.
 
 Example audit queries:
 - Aggregate value checks (e.g., total sales amount within expected range)
