@@ -10,6 +10,7 @@ __pycache__/
 profile.txt
 profile.html
 *.lprof
+profile.json
 
 # Test File
 customers-2000000.csv
