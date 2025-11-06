@@ -418,7 +418,8 @@ def create_tables() -> Engine:
         "idx_dlq_source_filename", file_load_dlq.c.source_filename, file_load_dlq.c.id
     )
     tables.append(file_load_dlq)
-    metadata.drop_all(engine, tables=tables)
+    if config.ENV_STATE == "dev":
+        metadata.drop_all(engine, tables=tables)
     metadata.create_all(engine, tables=tables)
     return engine
 
