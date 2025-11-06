@@ -53,15 +53,12 @@ def _register_pendulum_adapters():
         register_adapter(Date, lambda val: val.format("YYYY-MM-DD"))
     elif drivername == "mysql":
         # Register for pendulum types
+        # pymysql converters are called with (obj, mapping=None), so we need to handle that
         pymysql.converters.conversions[pendulum.DateTime] = (
             pymysql.converters.escape_datetime
         )
-        pymysql.converters.conversions[pendulum.Date] = lambda val: val.format(
-            "YYYY-MM-DD"
-        )
         # Also register for pydantic_extra_types types
         pymysql.converters.conversions[DateTime] = pymysql.converters.escape_datetime
-        pymysql.converters.conversions[Date] = lambda val: val.format("YYYY-MM-DD")
 
 
 TYPE_MAPPING = {
