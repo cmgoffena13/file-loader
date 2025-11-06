@@ -2,9 +2,11 @@ import logging
 import re
 from decimal import Decimal
 from pathlib import Path
+from sqlite3 import register_adapter
 from typing import Dict, Union, get_args, get_origin
 
 import pendulum
+import pymysql.converters
 import xxhash
 from annotated_types import MaxLen
 from pydantic import EmailStr
@@ -33,11 +35,34 @@ from sqlalchemy.dialects import mssql
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Engine
 
-from src.settings import config, get_database_config
+from src.settings import DevConfig, config, get_database_config
 from src.sources.base import DataSource, FileLoadLog
 from src.sources.systems.master import MASTER_REGISTRY
 
 logger = logging.getLogger(__name__)
+
+
+def _register_pendulum_adapters():
+    drivername = config.DRIVERNAME
+    if drivername == "sqlite":
+        # Register for pendulum types
+        register_adapter(pendulum.DateTime, lambda val: val.isoformat(" "))
+        register_adapter(pendulum.Date, lambda val: val.format("YYYY-MM-DD"))
+        # Also register for pydantic_extra_types types (they're subclasses but sqlite3 checks exact type)
+        register_adapter(DateTime, lambda val: val.in_timezone("UTC").isoformat(" "))
+        register_adapter(Date, lambda val: val.format("YYYY-MM-DD"))
+    elif drivername == "mysql":
+        # Register for pendulum types
+        pymysql.converters.conversions[pendulum.DateTime] = (
+            pymysql.converters.escape_datetime
+        )
+        pymysql.converters.conversions[pendulum.Date] = lambda val: val.format(
+            "YYYY-MM-DD"
+        )
+        # Also register for pydantic_extra_types types
+        pymysql.converters.conversions[DateTime] = pymysql.converters.escape_datetime
+        pymysql.converters.conversions[Date] = lambda val: val.format("YYYY-MM-DD")
+
 
 TYPE_MAPPING = {
     str: String,
@@ -309,6 +334,9 @@ def calculate_batch_size(source: DataSource) -> int:
 
 
 def create_tables() -> Engine:
+    # Register Pendulum adapters before creating engine
+    _register_pendulum_adapters()
+
     db_config = get_database_config()
     engine_kwargs = {
         "url": db_config["sqlalchemy.url"],
@@ -418,7 +446,7 @@ def create_tables() -> Engine:
         "idx_dlq_source_filename", file_load_dlq.c.source_filename, file_load_dlq.c.id
     )
     tables.append(file_load_dlq)
-    if config.ENV_STATE == "dev":
+    if isinstance(config, DevConfig):
         metadata.drop_all(engine, tables=tables)
     metadata.create_all(engine, tables=tables)
     return engine
