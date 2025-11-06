@@ -3,13 +3,12 @@ import logging
 import multiprocessing
 import shutil
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List
 
 import logfire
 import pendulum
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import MetaData, Table, insert, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -171,15 +170,26 @@ class FileProcessor:
 
         field_mapping = create_field_mapping(reader)
         reverse_field_mapping = create_reverse_field_mapping(reader)
+        adapter = TypeAdapter(reader.source.source_model)
+
+        _sample_record = {
+            field: "" for field in reader.source.source_model.model_fields.keys()
+        }
+        sorted_field_keys = tuple(sorted(_sample_record.keys()))
+        del _sample_record
 
         for index, record in enumerate(reader, start=reader.starting_row_number):
             passed = True
+            # Rename alias keys to column names and trim unneeded columns
+            record = {
+                field_mapping[k.lower()]: v
+                for k, v in record.items()
+                if k.lower() in field_mapping
+            }
             try:
-                validated_record = reader.source.source_model.model_validate(record)
-                record = validated_record.model_dump(mode="json")
+                record = adapter.validate_python(record).model_dump()
             except ValidationError as e:
                 validation_errors += 1
-                records_processed += 1
                 logger.debug(
                     f"[log_id={log.id}] Validation failed for row {index} for file {file_path.name}: {e}"
                 )
@@ -191,11 +201,11 @@ class FileProcessor:
                 )
 
                 # Filter record to only include failed fields and grain fields
+                # Convert field names back to column names (aliases) for DLQ
                 record = {
-                    alias_key: value
-                    for alias_key, value in record.items()
-                    if (field_name := field_mapping.get(alias_key.lower()))
-                    and field_name in failed_field_names
+                    reverse_field_mapping.get(field_name, field_name): value
+                    for field_name, value in record.items()
+                    if field_name in failed_field_names
                 }
 
                 if len(sample_validation_errors) <= 5:
@@ -211,14 +221,9 @@ class FileProcessor:
                 passed = False
 
             if passed:
-                # Rename alias keys to column names and trim unneeded columns
-                record = {
-                    field_mapping[k.lower()]: v
-                    for k, v in record.items()
-                    if k.lower() in field_mapping
-                }
-
-                record["etl_row_hash"] = create_row_hash(record)
+                record["etl_row_hash"] = create_row_hash(
+                    record, sorted_keys=sorted_field_keys
+                )
                 record["source_filename"] = file_path.name
                 record["file_load_log_id"] = log.id
                 result = (record, True)
@@ -329,7 +334,7 @@ class FileProcessor:
                     records_dlq_loaded += len(failed_batch)
 
             logger.info(
-                f"[log_id={log.id}] Successfully loaded {records_stage_loaded} records into stage table {stage_table_name} and {records_dlq_loaded} records into DLQ"
+                f"[log_id={log.id}] Successfully loaded {records_stage_loaded:,} records into stage table {stage_table_name} and {records_dlq_loaded:,} records into DLQ"
             )
             log.stage_load_ended_at = pendulum.now("UTC")
             log.records_stage_loaded = records_stage_loaded
@@ -816,3 +821,5 @@ class FileProcessor:
     def __del__(self):
         if hasattr(self, "thread_pool"):
             self.thread_pool.shutdown(wait=True)
+        if hasattr(self, "engine"):
+            self.engine.dispose(close=True)

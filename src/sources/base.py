@@ -1,8 +1,16 @@
 from pathlib import Path
-from typing import Optional, Type
+from typing import Any, Dict, Optional, Type
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from pydantic_extra_types.pendulum_dt import DateTime
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    model_validator,
+)
+from pydantic_extra_types.pendulum_dt import Date, DateTime
+
+from src.settings import config
 
 
 class FileLoadLog(BaseModel):
@@ -36,7 +44,18 @@ class FileLoadLog(BaseModel):
 
 
 class TableModel(BaseModel):
-    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
+    model_config = ConfigDict(
+        validate_by_name=True, validate_by_alias=True, extra="ignore"
+    )
+
+    @field_serializer("*", mode="plain")
+    def custom_serializer(self, value: Any) -> Any:
+        if config.DRIVERNAME in ["mysql", "sqlite"]:
+            if isinstance(value, DateTime):
+                return value.in_timezone("UTC").format("YYYY-MM-DD HH:mm:ss.SSSSSS")
+            elif isinstance(value, Date):
+                return value.format("YYYY-MM-DD")
+        return value
 
 
 class DataSource(BaseModel):

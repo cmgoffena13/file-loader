@@ -12,6 +12,11 @@ test:
 
 dev: dev-postgres
 
+profile: reset
+	docker compose up -d postgres
+	sleep 1
+	DEV_DATABASE_URL=postgresql+psycopg://fileloader:fileloader@localhost:5432/fileloader uv run scalene main.py
+
 down:
 	docker compose down
 

@@ -4,7 +4,7 @@ from logging.config import dictConfig
 import logfire
 from logfire import LogfireLoggingHandler
 
-from src.settings import DevConfig, config
+from src.settings import config
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def configure_logging() -> None:
     handlers = {
         "default": {
             "class": "rich.logging.RichHandler",
-            "level": "DEBUG",
+            "level": config.LOG_LEVEL,
             "formatter": "console",
             "show_path": False,
         }
@@ -31,7 +31,7 @@ def configure_logging() -> None:
     loggers = {
         "src": {
             "handlers": ["default"],
-            "level": "DEBUG" if isinstance(config, DevConfig) else "INFO",
+            "level": config.LOG_LEVEL,
             "propagate": False,
         }
     }
@@ -47,11 +47,13 @@ def configure_logging() -> None:
             "level": config.LOG_LEVEL,
         }
         loggers["src"]["handlers"].append("logfire_src")
-        loggers["sqlalchemy.engine"] = {
-            "handlers": ["logfire_sql"],
-            "level": config.LOG_LEVEL,
-            "propagate": False,
-        }
+
+        # NOTE: Uncomment this if you want to log SQLAlchemy engine logs to Logfire
+        # loggers["sqlalchemy.engine"] = {
+        #     "handlers": ["logfire_sql"],
+        #     "level": config.LOG_LEVEL,
+        #     "propagate": False,
+        # }
 
     dictConfig(
         {

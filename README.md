@@ -23,6 +23,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
     - [Dataset Audits](#dataset-audits)
 - [Logfire Integration](#logfire-integration)
 - [Reporting](#reporting)
+- [Case Study](#case-study)
 - [How to Add a New Source](#how-to-add-a-new-source)
 - [How to Add a New Reader](#how-to-add-a-new-reader)
 
@@ -336,6 +337,33 @@ inner join CTE
 	on CTE.id = l.id
 order by l.id
 ```
+
+## Case Study
+
+### Processing 2 Million Row CSV File
+
+To demonstrate real-world performance, I tested the framework with a large dataset from the [sample-csv-files repository](https://github.com/datablist/sample-csv-files).
+
+**Test Dataset:**
+- **File**: `customers-2000000.csv`
+- **Size**: 350 MB
+- **Rows**: 2,000,000 records
+- **Format**: CSV with headers
+
+**Results:**
+- **Processing Time**: 110 seconds (~1.8 minutes)
+- **Throughput**: ~18,181 rows/second
+- **Memory Efficiency**: Streaming processing handled the entire file without memory issues
+- **Database Operations**: All records successfully validated, staged, audited, and merged
+
+**Stage Duration Breakdown:**
+- **Archive Copy**: 0.068 seconds (68 ms)
+- **Processing & Stage Load**: 99.3 seconds (streaming validation and loading run concurrently)
+- **Audit**: 2.4 seconds
+- **Merge**: 8.2 seconds
+- **Total Duration**: 110 seconds
+
+This demonstrates the framework's ability to handle large-scale data processing efficiently while maintaining data quality through validation, staging, and audit checks.
 
 ## How to Add a New Source
 

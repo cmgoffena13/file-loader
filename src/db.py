@@ -7,6 +7,7 @@ from typing import Dict, Union, get_args, get_origin
 import pendulum
 import xxhash
 from annotated_types import MaxLen
+from pydantic import EmailStr
 from pydantic_extra_types.pendulum_dt import Date, DateTime
 from sqlalchemy import (
     JSON,
@@ -46,6 +47,7 @@ TYPE_MAPPING = {
     Decimal: Numeric,
     DateTime: lambda: _get_timezone_aware_datetime_type(),
     Date: SQLDate,
+    EmailStr: String,
 }
 
 
@@ -289,8 +291,9 @@ def create_merge_sql(
 
 
 def calculate_batch_size(source: DataSource) -> int:
-    """If SQL Server, calculate batch size based on 1000 values per INSERT limit."""
+    """Calculate batch size based on database-specific requirements."""
     drivername = config.DRIVERNAME
+
     if "mssql" in drivername:
         # SQL Server has 1000 values per INSERT limit
         max_values = 1000
@@ -415,6 +418,7 @@ def create_tables() -> Engine:
         "idx_dlq_source_filename", file_load_dlq.c.source_filename, file_load_dlq.c.id
     )
     tables.append(file_load_dlq)
+    metadata.drop_all(engine, tables=tables)
     metadata.create_all(engine, tables=tables)
     return engine
 
@@ -445,12 +449,17 @@ def get_delete_dlq_sql() -> str:
     return delete_sql
 
 
-def create_row_hash(record: Dict[str, str]) -> bytes:
+def create_row_hash(
+    record: Dict[str, str], sorted_keys: tuple[str, ...] | None = None
+) -> bytes:
     string_items = {
         key: str(value) if value is not None else "" for key, value in record.items()
     }
-    sorted_items = sorted(string_items.items())
-    data_string = "|".join(v for _, v in sorted_items)
+
+    data_string = "|".join(
+        string_items.get(key, "") for key in sorted_keys if key in string_items
+    )
+
     return xxhash.xxh32(data_string.encode("utf-8")).digest()
 
 

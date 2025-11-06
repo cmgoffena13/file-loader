@@ -25,4 +25,6 @@ dependencies = [
     "xxhash>=3.6.0",
     "logfire>=4.14.2",
     "rich>=14.2.0",
+    "email-validator>=2.3.0",
+    "scalene>=1.5.55",
 ]
