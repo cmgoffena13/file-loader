@@ -26,7 +26,8 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - [Case Study](#case-study)
 - [How to Add a New Source](#how-to-add-a-new-source)
 - [How to Add a New Reader](#how-to-add-a-new-reader)
-- [SQL Server Caveats](#sql-server-caveats)
+- [SQL Server Bulk Copy](#sql-server-bulk-copy)
+  - [PythonNet](#pythonnet)
 
 
 ## Features
@@ -37,7 +38,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - **Memory Efficient**: Uses iterative reading to handle large files without loading everything into memory
 - **Database Batch Operations**: Database Operations are batched to handle large armounts of data
 - **Parallel Processing**: Processes multiple files concurrently using thread pools
-- **Flexible Database Support**: PostgreSQL, MySQL, and SQL Server Compatability (Note: See [SQL Server Caveats](#sql-server-caveats))
+- **Flexible Database Support**: PostgreSQL, MySQL, and SQL Server Compatability (Note: See [SQL Server Bulk Copy](#sql-server-bulk-copy))
 - **Proper Indexing**: Table indexing strategy that supports high data volumes
 - **Portable/Flexible**: Dockerized deployment option for containerized execution or native installation using `uv`
 
@@ -96,6 +97,7 @@ pre-commit install --install-hooks
 Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex. DEV_DATABASE_URL):
 
 **Required:**
+- `ENV_STATE`: Accepted values: `dev`, `test`, or `prod`. Determines environment and environment variable prefixes (DEV, TEST, PROD)
 - `DATABASE_URL`: Database connection string (where to load the files)
 - `DIRECTORY_PATH`: Directory to watch for files
 - `ARCHIVE_PATH`: Directory to archive processed files
@@ -117,6 +119,9 @@ Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex
 
 ### Logfire Logging (Optional)
 - `LOGFIRE_TOKEN`: Logfire token to send logs to Logfire project
+
+### SQL Server Bulk Copy Flag
+- `SQL_SERVER_BULK_COPY_FLAG`: Feature Flag to enable .NET `SqlBulkCopy`. See [SQL Server Bulk Copy](#sql-server-bulk-copy)
 
 ## How It Works
 
@@ -579,41 +584,16 @@ Add your reader to `src/readers/reader_factory.py`:
 
 Once registered, create a source configuration using your new source type and the system will automatically use your reader for matching file extensions.
 
-## SQL Server Caveats
+## SQL Server Bulk Copy
 
 SQL Server is notorious for not cooperating with Python. The only way to batch insert values into SQL Server is to use an insert statement, but SQL Server only allows a maximum of 2100 *values* and/or 1000 *records*, whichever is hit first. This means the batch size for SQL Server will likely be smaller than 1,000 records, much smaller than the default of 10,000, and this framework will be much slower due to this constraint.
 
 This can also cause transaction bloat when processing large files. Be Careful. If possible, make sure the database you are loading data into has `Database Recovery Mode` set to `Simple` to limit transaction overhead. Consult your DBA.
 
-If speed is really important to you, you can check out [pythonnet](https://github.com/pythonnet/pythonnet) and modify the insert function to utilize the dotnet framework, `DataTables`, and the very fast `SqlBulkCopy` operation. You'll need to modify the `src.db.calculate_batch_size` file as well to remove the batch calculation constraint.
+### PythonNet
 
-pythonnet AI Example Below:
-```python
-import clr
-clr.AddReference('System.Data')
-from System.Data import DataTable
-from System.Data.SqlClient import SqlBulkCopy, SqlConnection
+Here's the really good news. If speed is really important to you, I took tremendous effort into figuring out how to use [pythonnet](https://github.com/pythonnet/pythonnet) so that the .NET `SqlBulkCopy` command is accessible. This removes the constraint on insert statements and utilizes SQL Server's native bulk loading capabilities for faster operations. Simply set the `{DEV|TEST|PROD}_SQL_SERVER_SQLBULKCOPY_FLAG` to true in the environment variables. You need access to the .NET Framework on your machine or you can utilize the `Dockerfile.sqlserver` docker file to create a container that sets up the appropriate environment.
 
-def dicts_to_datatable(data, table_name):
-    # Create a DataTable and define columns based on keys in dict
-    dt = DataTable()
-    for col in data[0].keys():
-        dt.Columns.Add(col)
+#### Details
 
-    # Add rows from the list of dicts
-    for row in data:
-        dr = dt.NewRow()
-        for key, value in row.items():
-            dr[key] = value if value is not None else DBNull.Value
-        dt.Rows.Add(dr)
-    dt.TableName = table_name
-    return dt
-
-def bulk_insert(connection_string, table_name, data_list):
-    dt = dicts_to_datatable(data_list, table_name)
-    with SqlConnection(connection_string) as conn:
-        conn.Open()
-        bulk_copy = SqlBulkCopy(conn)
-        bulk_copy.DestinationTableName = table_name
-        bulk_copy.WriteToServer(dt)
-```
+Tested with .NET 9 and version 6.1.2 of `Microsoft.Data.SqlClient`.

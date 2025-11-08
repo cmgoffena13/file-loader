@@ -1,0 +1,43 @@
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS base
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        openssl \
+        build-essential \
+        make \
+        gcc \
+        g++ \
+        gnupg2 && \
+    apt-get upgrade -y && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Microsoft ODBC Driver for SQL Server
+RUN curl -sSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg && \
+    echo "deb [arch=amd64,arm64,armhf signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/mssql-release.list && \
+    apt-get update && \
+    ACCEPT_EULA=Y apt-get install -y --no-install-recommends \
+        msodbcsql18 \
+        unixodbc \
+        unixodbc-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+ADD https://astral.sh/uv/install.sh /uv-installer.sh
+RUN sh /uv-installer.sh && rm /uv-installer.sh
+
+ENV PATH="/root/.local/bin/:$PATH"
+
+RUN uv python install 3.12
+ENV UV_LINK_MODE=copy
+
+FROM base AS python-installed
+
+WORKDIR /fileloader
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --compile-bytecode
+
+COPY . .
+
+CMD ["uv", "run", "--", "python", "main.py"]

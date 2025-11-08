@@ -27,4 +27,5 @@ dependencies = [
     "rich>=14.2.0",
     "email-validator>=2.3.0",
     "scalene>=1.5.55",
+    "pythonnet>=3.0.5",
 ]

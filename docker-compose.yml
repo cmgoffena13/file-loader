@@ -59,6 +59,17 @@ services:
         /opt/mssql-tools/bin/sqlcmd -S sqlserver -U sa -P "FileLoader123!" -i /init.sql
         echo "Initialization complete."
 
+  file-loader-sqlserver-bulk:
+    build:
+      context: .
+      dockerfile: Dockerfile.sqlserver
+    container_name: file-loader-sqlserver-bulk
+    depends_on:
+      - sqlserver
+    environment:
+      DEV_DATABASE_URL: mssql+pyodbc://sa:FileLoader123!@sqlserver:1433/fileloader?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes
+      DEV_SQL_SERVER_SQLBULKCOPY_FLAG: "true"
+
 volumes:
   postgres_data:
   mysql_data:

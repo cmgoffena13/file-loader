@@ -1,10 +1,14 @@
+import logging
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pythonnet import load
 
+logger = logging.getLogger(__name__)
 SUPPORTED_DATABASE_DRIVERS = {
     "postgresql": "postgresql",
     "mysql": "mysql",
@@ -59,6 +63,8 @@ class GlobalConfig(BaseConfig):
     LOGFIRE_TOKEN: Optional[str] = None
     LOGFIRE_CONSOLE: bool = False
 
+    SQL_SERVER_SQLBULKCOPY_FLAG: bool = False
+
 
 class DevConfig(GlobalConfig):
     DIRECTORY_PATH: Path = Path("src/tests/test_data")
@@ -91,6 +97,22 @@ def get_config(env_state: str):
 
 
 config = get_config(BaseConfig().ENV_STATE)
+
+
+def _initialize_dotnet_runtime():
+    """Initialize .NET runtime once at startup if using SQL Server and bulk copy is enabled."""
+    if config.DRIVERNAME == "mssql" and config.SQL_SERVER_SQLBULKCOPY_FLAG:
+        try:
+            runtime = os.environ.get("PYTHONNET_RUNTIME", "coreclr")
+            load(runtime)
+            logger.debug(f"Initialized .NET runtime: {runtime}")
+        except Exception as e:
+            # Log but don't fail - sqlserver.py will handle the error when actually used
+            logger.warning(f"Failed to initialize .NET runtime at startup: {e}")
+
+
+# Initialize .NET runtime at module load if needed
+_initialize_dotnet_runtime()
 
 
 def get_database_config():

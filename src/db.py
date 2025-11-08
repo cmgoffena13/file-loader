@@ -316,7 +316,7 @@ def calculate_batch_size(source: DataSource) -> int:
     """Calculate batch size based on database-specific requirements."""
     drivername = config.DRIVERNAME
 
-    if "mssql" in drivername:
+    if drivername == "mssql" and not config.SQL_SERVER_SQLBULKCOPY_FLAG:
         # SQL Server has two limits:
         # 1. Max 1000 rows per INSERT statement
         # 2. Max 2100 values per INSERT statement

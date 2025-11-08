@@ -37,6 +37,7 @@ from src.retry import get_error_location, retry
 from src.settings import config
 from src.sources.base import DataSource, FileLoadLog
 from src.sources.systems.master import MASTER_REGISTRY
+from src.sqlserver import bulk_insert
 from src.utils import (
     create_field_mapping,
     create_reverse_field_mapping,
@@ -362,6 +363,11 @@ class FileProcessor:
     def _insert_batch(
         self, batch: list[Dict[str, Any]], table_name: str, log: FileLoadLog
     ):
+        drivername = config.DRIVERNAME
+        if drivername == "mssql" and config.SQL_SERVER_SQLBULKCOPY_FLAG:
+            bulk_insert(config.DATABASE_URL, table_name, batch, log)
+            return
+
         columns = list[str](batch[0].keys())
 
         placeholders = ", ".join([f":{col}" for col in columns])
@@ -641,6 +647,12 @@ class FileProcessor:
             logger.warning(
                 f"[log_id={log.id}] _insert_dlq_records called with empty list"
             )
+            return
+
+        drivername = config.DRIVERNAME
+        if drivername == "mssql" and config.SQL_SERVER_SQLBULKCOPY_FLAG:
+            table_name = "file_load_dlq"
+            bulk_insert(config.DATABASE_URL, table_name, failed_records, log)
             return
 
         dlq_table = self._get_file_load_dlq()
