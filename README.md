@@ -51,7 +51,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - **Audit Framework**: Configurable aggregate audit queries to ensure data quality
 - **Retry Logic**: Automatic retry with exponential backoff for database operations to handle transient failures
 - **Error Isolation**: Errors in one file do not stop processing of other files - each file is processed independently with errors logged to `file_load_log` table and optional notification firing
-- **Observability & Distributed Tracing**: Optional Logfire integration using spans to group logs together under each file process for easy observability
+- **Dead Letter Queue**: Any records that fail validation are inserted into the `file_load_dlq` table for further review with detailed information
 - **Notifications**: 
   - Email notifications to business stakeholders for file-based issues:
     - No Header detected
@@ -70,6 +70,8 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - **Extensible Factory Pattern**: Uses a factory pattern with abstract base classes, making it easy to add new file format readers (e.g., `.txt`, `.parquet`)
 - **Automatic Table Creation**: Database tables & indexes are automatically generated from Pydantic model schemas - no manual DDL required
 - **Test Suite**: Comprehensive test coverage with pytest, fixtures, and isolated test configurations
+- **Observability & Distributed Tracing**: Optional Logfire integration using spans to group logs together under each file process for easy observability
+- **Dead Letter Queue**: Easily see which type of parsing errors are occurring and if any code adjustments need to happen to better support ingestion
 
 ## Quick Start
 
@@ -176,7 +178,9 @@ The system provides two levels of quality checks to ensure data integrity:
 
 Pydantic model validation provides field-level validation rules that are automatically applied to each record. You can implement various validation constraints in your Pydantic model:
 
-- **String length**: Use `Field(max_length=100)` to limit the maximum length of string fields. Note: HIGHLY RECOMMEND you do this for all string fields if you use SQL Server, otherwise it implements NVARCHAR(MAX) for the data type with the table *yikes*
+- **String length**: Use `Field(max_length=100)` to limit the maximum length of string fields. 
+
+>Note: *HIGHLY RECOMMEND* you do this for all string fields if you use SQL Server, otherwise it implements NVARCHAR(MAX) for the data type with the table *yikes*
 - **Min/Max values**: Use `Field(ge=0, le=100)` for numeric fields to enforce minimum and maximum values
 - **Specific categories**: Use `Literal` types or `Field` constraints to restrict values to specific allowed categories
 - **Type validation**: Automatic type checking (int, float, date, datetime, etc.) with proper parsing and conversion. Supports Pendulum date/datetime types via `pydantic-extra-types[pendulum]` for enhanced date handling
@@ -247,7 +251,7 @@ The `file_load_dlq` automatically captures all records that fail validation duri
   - `error_type`: The type of validation error (e.g., `int_parsing`, `date_parsing`)
   - `error_msg`: The error message (lowercased)
   - Multiple errors are formatted as an array: `[{column_name: quantity, column_value: not_a_number, error_type: int_parsing, error_msg: ...}, ...]`
-- **`file_load_log_id`**: Foreign key reference to `file_load_log.id` for tracking which processing run this error belongs to
+- **`file_load_log_id`**: Foreign key reference to `file_load_log` for tracking which processing run this error belongs to
 - **`target_table_name`**: The target table name this record was intended for
 - **`failed_at`**: Timestamp when the record failed validation
 
