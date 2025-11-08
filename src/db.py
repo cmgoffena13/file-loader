@@ -317,14 +317,23 @@ def calculate_batch_size(source: DataSource) -> int:
     drivername = config.DRIVERNAME
 
     if "mssql" in drivername:
-        # SQL Server has 1000 values per INSERT limit
-        max_values = 1000
+        # SQL Server has two limits:
+        # 1. Max 1000 rows per INSERT statement
+        # 2. Max 2100 values per INSERT statement
+        # We need to respect both limits and maximize batch size
         column_count = (
             len(source.source_model.model_fields) + 2
         )  # +2 for ETL metadata columns (etl_row_hash, source_filename)
-        # Calculate max rows: (max_values / columns_per_row) - 1 for safety margin
-        max_rows = (max_values // column_count) - 1
-        return max(1, min(max_rows, config.BATCH_SIZE))
+
+        # Calculate max rows based on value limit: (2100 / columns_per_row) - 1 for safety margin
+        max_rows_from_values = (2100 // column_count) - 1
+
+        # SQL Server hard limit: 1000 rows per INSERT
+        max_rows_from_records = 1000
+
+        # Take the minimum of both limits (config.BATCH_SIZE is typically 10K+ so not a factor)
+        max_rows = min(max_rows_from_values, max_rows_from_records)
+        return max(1, max_rows)
 
     # For other databases, use configured batch size
     return config.BATCH_SIZE

@@ -26,6 +26,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - [Case Study](#case-study)
 - [How to Add a New Source](#how-to-add-a-new-source)
 - [How to Add a New Reader](#how-to-add-a-new-reader)
+- [SQL Server Caveats](#sql-server-caveats)
 
 
 ## Features
@@ -36,7 +37,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - **Memory Efficient**: Uses iterative reading to handle large files without loading everything into memory
 - **Database Batch Operations**: Database Operations are batched to handle large armounts of data
 - **Parallel Processing**: Processes multiple files concurrently using thread pools
-- **Flexible Database Support**: PostgreSQL, MySQL, and SQL Server Compatability
+- **Flexible Database Support**: PostgreSQL, MySQL, and SQL Server Compatability (Note: See [SQL Server Caveats](#sql-server-caveats))
 - **Proper Indexing**: Table indexing strategy that supports high data volumes
 - **Portable/Flexible**: Dockerized deployment option for containerized execution or native installation using `uv`
 
@@ -346,7 +347,7 @@ order by l.id
 
 ### Processing 2 Million Row CSV File
 
-To demonstrate real-world performance, I tested the framework with a large dataset from the [sample-csv-files repository](https://github.com/datablist/sample-csv-files).
+To demonstrate real-world performance, I tested the framework with a large dataset from the [sample-csv-files repository](https://github.com/datablist/sample-csv-files) with Postgres.
 
 **Test Dataset:**
 - **File**: `customers-2000000.csv`
@@ -577,3 +578,42 @@ Add your reader to `src/readers/reader_factory.py`:
 ### Step 4: Use the Reader
 
 Once registered, create a source configuration using your new source type and the system will automatically use your reader for matching file extensions.
+
+## SQL Server Caveats
+
+SQL Server is notorious for not cooperating with Python. The only way to batch insert values into SQL Server is to use an insert statement, but SQL Server only allows a maximum of 2100 *values* and/or 1000 *records*, whichever is hit first. This means the batch size for SQL Server will likely be smaller than 1,000 records, much smaller than the default of 10,000, and this framework will be much slower due to this constraint.
+
+This can also cause transaction bloat when processing large files. Be Careful. If possible, make sure the database you are loading data into has `Database Recovery Mode` set to `Simple` to limit transaction overhead. Consult your DBA.
+
+If speed is really important to you, you can check out `pythonnet` and modify the insert function to utilize the dotnet framework, `DataTables`, and the very fast `SqlBulkCopy` operation. You'll need to modify the `src.db.calculate_batch_size` file as well to remove the batch calculation constraint.
+
+pythonnet AI Example Below:
+```python
+import clr
+clr.AddReference('System.Data')
+from System.Data import DataTable
+from System.Data.SqlClient import SqlBulkCopy, SqlConnection
+
+def dicts_to_datatable(data, table_name):
+    # Create a DataTable and define columns based on keys in dict
+    dt = DataTable()
+    for col in data[0].keys():
+        dt.Columns.Add(col)
+
+    # Add rows from the list of dicts
+    for row in data:
+        dr = dt.NewRow()
+        for key, value in row.items():
+            dr[key] = value if value is not None else DBNull.Value
+        dt.Rows.Add(dr)
+    dt.TableName = table_name
+    return dt
+
+def bulk_insert(connection_string, table_name, data_list):
+    dt = dicts_to_datatable(data_list, table_name)
+    with SqlConnection(connection_string) as conn:
+        conn.Open()
+        bulk_copy = SqlBulkCopy(conn)
+        bulk_copy.DestinationTableName = table_name
+        bulk_copy.WriteToServer(dt)
+```
