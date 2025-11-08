@@ -585,7 +585,7 @@ SQL Server is notorious for not cooperating with Python. The only way to batch i
 
 This can also cause transaction bloat when processing large files. Be Careful. If possible, make sure the database you are loading data into has `Database Recovery Mode` set to `Simple` to limit transaction overhead. Consult your DBA.
 
-If speed is really important to you, you can check out `pythonnet` and modify the insert function to utilize the dotnet framework, `DataTables`, and the very fast `SqlBulkCopy` operation. You'll need to modify the `src.db.calculate_batch_size` file as well to remove the batch calculation constraint.
+If speed is really important to you, you can check out [pythonnet](https://github.com/pythonnet/pythonnet) and modify the insert function to utilize the dotnet framework, `DataTables`, and the very fast `SqlBulkCopy` operation. You'll need to modify the `src.db.calculate_batch_size` file as well to remove the batch calculation constraint.
 
 pythonnet AI Example Below:
 ```python
