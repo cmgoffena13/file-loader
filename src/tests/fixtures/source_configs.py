@@ -22,10 +22,6 @@ TEST_SALES = CSVSource(
     source_model=TestTransaction,
     table_name="transactions",
     grain=["transaction_id"],
-    audit_query="""
-        SELECT CASE WHEN COUNT(DISTINCT transaction_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
-        FROM {table}
-    """,
     delimiter=",",
     encoding="utf-8",
     skip_rows=0,
@@ -36,10 +32,6 @@ TEST_SALES_WITH_DLQ = CSVSource(
     source_model=TestTransaction,
     table_name="transactions",
     grain=["transaction_id"],
-    audit_query="""
-        SELECT CASE WHEN COUNT(DISTINCT transaction_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
-        FROM {table}
-    """,
     delimiter=",",
     encoding="utf-8",
     skip_rows=0,
@@ -62,10 +54,6 @@ TEST_INVENTORY = ExcelSource(
     source_model=TestProduct,
     table_name="products",
     grain=["sku"],
-    audit_query="""
-        SELECT CASE WHEN COUNT(DISTINCT sku) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
-        FROM {table}
-    """,
     sheet_name=None,
     skip_rows=0,
 )
@@ -87,10 +75,24 @@ TEST_FINANCIAL = JSONSource(
     source_model=TestLedgerEntry,
     table_name="ledger_entries",
     grain=["entry_id"],
-    audit_query="""
-        SELECT CASE WHEN COUNT(DISTINCT entry_id) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
-        FROM {table}
-    """,
     array_path="entries.item",
+    skip_rows=0,
+)
+
+
+class TestDateConversion(TableModel):
+    id: str
+    name: str
+    birth_date: Date = Field(alias="Birth Date")
+    created_at: DateTime = Field(alias="Created At")
+    quantity: int  # Non-date field to ensure it's not converted
+
+
+TEST_DATE_CONVERSION = ExcelSource(
+    file_pattern="dates_*.xlsx",
+    source_model=TestDateConversion,
+    table_name="date_test",
+    grain=["id"],
+    sheet_name=None,
     skip_rows=0,
 )
