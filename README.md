@@ -38,6 +38,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - **Memory Efficient**: Uses iterative reading to handle large files without loading everything into memory
 - **Database Batch Operations**: Database Operations are batched to handle large armounts of data
 - **Parallel Processing**: Processes multiple files concurrently using thread pools
+  - **Dynamic Stage Table Creation**: Multiple files can be processed for the same target table
 - **Flexible Database Support**: PostgreSQL, MySQL, and SQL Server Compatability (Note: See [SQL Server Bulk Copy](#sql-server-bulk-copy))
 - **Proper Indexing**: Table indexing strategy that supports high data volumes
 - **Portable/Flexible**: Dockerized deployment option for containerized execution or native installation using `uv`
