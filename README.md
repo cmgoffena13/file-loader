@@ -400,13 +400,14 @@ Create `{source_file}.py` in the new directory with:
 1. **Pydantic Model**: Define your table schema by extending `TableModel`:
    ```python
    from src.sources.base import CSVSource, TableModel
-   from pydantic_extra_types.pendulum_dt import Date
+   from pydantic_extra_types.pendulum_dt import Date, DateTime
    from pydantic import Field
    
    class YourModel(TableModel):
-       field1: str = Field(alias="Column Name")  # Use alias if column names differ
-       field2: int
+       field1: str = Field(max_length=50)  # Designate the length of the database column
+       field2: int = Field(alias="Column Name")  # Use alias if column names differ
        field3: Date
+       field4: DateTime
    ```
 
 2. **Source Configuration**: Create a source instance (CSVSource, ExcelSource, or JSONSource):
@@ -415,11 +416,7 @@ Create `{source_file}.py` in the new directory with:
        file_pattern="files_*.csv",           # Wildcard pattern to match files
        source_model=YourModel,                # Pydantic model defined above
        table_name="your_table",               # Database table name
-       grain=["field1", "field2"],            # Unique key columns (for MERGE)
-       audit_query="""                        # SQL audit query (must return 1=success, 0=failure)
-           SELECT CASE WHEN COUNT(DISTINCT field1) = COUNT(*) THEN 1 ELSE 0 END AS grain_unique
-           FROM {table}
-       """,
+       grain=["field1", "field2"],            # Unique key columns (for MERGE), automatic valdation during audit phase
        validation_error_threshold=0.05,      # Optional: % errors allowed (default: 0.0)
        delimiter=",",                         # CSV-specific
        encoding="utf-8",                      # CSV-specific
