@@ -402,9 +402,12 @@ class FileProcessor:
                 duplicate_sql = duplicate_sql.format(table=stage_table_name)
                 duplicate_records = session.execute(text(duplicate_sql)).fetchall()
 
-                grain_aliases = [
-                    get_field_alias(source, grain_field) for grain_field in source.grain
-                ]
+                # Cache grain field aliases to avoid repeated lookups in loop
+                grain_field_aliases = {
+                    grain_field: get_field_alias(source, grain_field)
+                    for grain_field in source.grain
+                }
+                grain_aliases = list(grain_field_aliases.values())
                 error_msg_parts = [
                     f"Grain values are not unique for file: {source_filename}",
                     f"Table: {stage_table_name}",
@@ -414,7 +417,7 @@ class FileProcessor:
                 for record in duplicate_records:
                     record_dict = dict(record._mapping)
                     aliased_record = {
-                        get_field_alias(source, grain_field): record_dict[grain_field]
+                        grain_field_aliases[grain_field]: record_dict[grain_field]
                         for grain_field in source.grain
                     }
                     aliased_record["duplicate_count"] = record_dict["duplicate_count"]

@@ -11,6 +11,10 @@ from src.sources.base import ExcelSource
 
 
 class ExcelReader(BaseReader):
+    # Excel epoch: 1899-12-30 (Excel's epoch with 1900 leap year bug)
+    # Serial number 1 = 1900-01-01
+    _EXCEL_EPOCH = pendulum.datetime(1899, 12, 30)
+
     def __init__(self, file_path: Path, source, sheet_name: str, skip_rows: int):
         super().__init__(file_path, source)
         self.sheet_name = sheet_name
@@ -53,13 +57,11 @@ class ExcelReader(BaseReader):
             key_lower = key.lower()
             # Only convert if the field is Date/DateTime in the source model AND value is numeric
             if key_lower in date_field_mapping and isinstance(value, (int, float)):
-                # Excel epoch: 1899-12-30 (Excel's epoch with 1900 leap year bug)
-                excel_epoch = pendulum.datetime(1899, 12, 30)
                 days = int(value)
                 fractional = value - days
 
                 # Convert to datetime using pendulum's add() method
-                dt = excel_epoch.add(days=days)
+                dt = self._EXCEL_EPOCH.add(days=days)
 
                 # Add time component if there's a fractional part (time of day)
                 if fractional > 0:
