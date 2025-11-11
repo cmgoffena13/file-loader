@@ -309,7 +309,7 @@ This allows you to:
 - Debug issues by correlating logs with specific file operations
 - Monitor performance and identify bottlenecks
 
-The system gracefully falls back to console-only logging if `LOGFIRE_TOKEN` is not provided, so Logfire is completely optional. You can create a [free account](https://logfire-us.pydantic.dev) to get 1,000,000 requests per month though...
+The system gracefully falls back to console-only logging if `LOGFIRE_TOKEN` is not provided, so Logfire is completely optional. You can create a [free account](https://logfire-us.pydantic.dev) to get 10,000,000 requests per month though...
 
 ## Reporting
 
