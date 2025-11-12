@@ -1,5 +1,6 @@
 import logging
 import smtplib
+import textwrap
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from enum import Enum
@@ -80,7 +81,7 @@ def send_failure_notification(
 
     if not recipients and not cc_recipients:
         logger.warning(
-            f"No email recipients configured for file {file_name}, skipping notification"
+            f"No email recipients and no data team email configured for file {file_name}, skipping notification"
         )
         return
 
@@ -98,21 +99,22 @@ def send_failure_notification(
     if cc_recipients:
         msg["Cc"] = ", ".join(cc_recipients)
 
-    body_text = f"""
-File Processing Failure Notification
+    body_text = textwrap.dedent(f"""
+    File Processing Failure Notification
 
-File: {file_name}
-Error Type: {error_type}
-Log ID: {log_id if log_id else "N/A"}
+    File: {file_name}
+    Error Type: {error_type}
+    Log ID: {log_id if log_id else "N/A"}
 
-Error Details:
-{error_message}
-"""
+    Error Details:
+    {error_message}
+    """).strip()
 
     if additional_details:
         body_text += f"\nAdditional Information:\n{additional_details}"
 
-    body_text += f"\n\Data Team can reference log_id={log_id} for more details."
+    if log_id:
+        body_text += f"\n\nData Team can reference log_id={log_id} for more details."
 
     msg.attach(MIMEText(body_text, "plain"))
 
@@ -122,9 +124,17 @@ Error Details:
             logger.warning("SMTP_HOST not configured, skipping email notification")
             return
 
-        with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT) as server:
+        # Use SMTP_SSL for port 465, regular SMTP for other ports
+        if config.SMTP_PORT == 465:
+            server = smtplib.SMTP_SSL(config.SMTP_HOST, config.SMTP_PORT)
+        else:
+            server = smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT)
+
+        with server:
             if config.SMTP_USER and config.SMTP_PASSWORD:
-                server.starttls()
+                # Only start TLS if not using SSL (port 465)
+                if config.SMTP_PORT != 465:
+                    server.starttls()
                 server.login(config.SMTP_USER, config.SMTP_PASSWORD)
 
             all_recipients = recipients + cc_recipients
