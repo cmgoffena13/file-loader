@@ -38,7 +38,7 @@ dev-sqlserver: reset
 dev-sqlserver-bulk: reset
 	docker compose up -d sqlserver sqlserver-init
 	sleep 5
-	docker compose up --build file-loader-sqlserver-bulk
+	docker compose up file-loader-sqlserver-bulk
 
 reset:
 	cp -R src/tests/archive_data/* src/tests/test_data/
