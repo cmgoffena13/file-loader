@@ -91,7 +91,7 @@ def send_failure_notification(
         return
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"File Load Failed: {file_name}"
+    msg["Subject"] = f"FileLoader Failed: {file_name} - {error_type}"
     msg["From"] = config.FROM_EMAIL
 
     msg["To"] = ", ".join(recipients)
