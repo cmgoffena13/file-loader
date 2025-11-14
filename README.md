@@ -21,7 +21,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
   - [Quality / Audit Checks](#quality--audit-checks)
     - [Pydantic Model Validation](#pydantic-model-validation)
     - [Dataset Audits](#dataset-audits)
-- [Logfire Integration](#logfire-integration)
+- [OpenTelemetry Integration](#opentelemetry-integration)
 - [Reporting](#reporting)
 - [Case Study](#case-study)
 - [How to Add a New Source](#how-to-add-a-new-source)
@@ -73,7 +73,7 @@ An ETL framework for processing CSV, Excel, and JSON files with memory efficient
 - **Extensible Factory Pattern**: Uses a factory pattern with abstract base classes, making it easy to add new file format readers (e.g., `.txt`, `.parquet`)
 - **Automatic Table Creation**: Database tables & indexes are automatically generated from Pydantic model schemas - no manual DDL required
 - **Test Suite**: Comprehensive test coverage with pytest, fixtures, and isolated test configurations
-- **Observability & Distributed Tracing**: Optional Logfire integration using spans to group logs together under each file process for easy observability
+- **Observability & Distributed Tracing**: Optional OpenTelemetry integration using spans to group logs together under each file process for easy observability. Compatible with any OpenTelemetry-compatible platform (Logfire, Datadog, New Relic, etc.)
 - **Dead Letter Queue**: Easily see which type of parsing errors are occurring and if any code adjustments need to happen to better support ingestion
 
 ## Quick Start
@@ -118,8 +118,10 @@ Set environment variables (Add the appropriate env prefix (DEV, TEST, PROD) - Ex
 ### Batch Size (Optional)
 - `BATCH_SIZE`: Number of records per batch insert (default: 10000)
 
-### Logfire Logging (Optional)
-- `LOGFIRE_TOKEN`: Logfire token to send logs to Logfire project
+### OpenTelemetry Observability (Optional)
+- `OPEN_TELEMETRY_TRACE_ENDPOINT`: OpenTelemetry trace endpoint (e.g., `https://logfire-us.pydantic.dev/v1/traces` or `https://api.datadoghq.com/api/v2/traces`)
+- `OPEN_TELEMETRY_LOG_ENDPOINT`: OpenTelemetry log endpoint (e.g., `https://logfire-us.pydantic.dev/v1/logs` or `https://api.datadoghq.com/api/v2/logs`)
+- `OPEN_TELEMETRY_AUTHORIZATION_TOKEN`: Authorization token/API key for your observability platform
 
 ### SQL Server Bulk Copy Flag
 - `SQL_SERVER_BULK_COPY_FLAG`: Feature Flag to enable .NET `SqlBulkCopy`. See [SQL Server Bulk Copy](#sql-server-bulk-copy)
@@ -289,19 +291,28 @@ ORDER BY file_row_number
 
 When a file is reprocessed and the merge succeeds, the system automatically detects if DLQ records exist from a previous processing run. If they do, all DLQ records for that filename are deleted to keep the DLQ table clean. This ensures that successfully reprocessed records don't clutter the DLQ table.
 
-## Logfire Integration
+## OpenTelemetry Integration
 
-Logfire provides distributed tracing and observability for file processing operations. When enabled, each file processing operation is wrapped in a span that automatically associates all logs with that specific file, making it easy to trace logs and debug issues.
+The framework uses OpenTelemetry for distributed tracing and observability, making it compatible with any OpenTelemetry-compatible observability platform. When enabled, each file processing operation is wrapped in a span that automatically associates all logs with that specific file, making it easy to trace logs and debug issues.
 
 ![Logfire Dashboard](logfire.png)
 
+### Supported Platforms
+
+This integration works with any OpenTelemetry-compatible platform, including:
+- **Logfire** - [Free account available](https://logfire-us.pydantic.dev) with 10,000,000 requests per month
+- **Datadog** - Enterprise observability platform
+- **New Relic** - Application performance monitoring
+- **Honeycomb** - Observability for modern engineering teams
+- **Grafana Cloud** - Open source observability
+- **Any OTLP-compatible collector** - Use your own OpenTelemetry Collector
+
 ### How It Works
 
-When `{DEV|TEST|PROD}_LOGFIRE_TOKEN` is configured:
+When `OPEN_TELEMETRY_TRACE_ENDPOINT` and/or `OPEN_TELEMETRY_LOG_ENDPOINT` are configured:
 - Each file processing operation creates a span named after the file being processed
 - All logs generated during file processing are automatically associated with that span
-- SQLAlchemy engine logs are captured separately at INFO level
-- Application logs are sent to Logfire at DEBUG level (development) or INFO level (production)
+- Traces and logs are sent to separate endpoints (as required by the OTLP protocol)
 
 This allows you to:
 - View all logs for a specific file processing run in one place
@@ -309,7 +320,23 @@ This allows you to:
 - Debug issues by correlating logs with specific file operations
 - Monitor performance and identify bottlenecks
 
-The system gracefully falls back to console-only logging if `LOGFIRE_TOKEN` is not provided, so Logfire is completely optional. You can create a [free account](https://logfire-us.pydantic.dev) to get 10,000,000 requests per month though...
+### Configuration Examples
+
+**Logfire:**
+```bash
+OPEN_TELEMETRY_TRACE_ENDPOINT=https://logfire-us.pydantic.dev/v1/traces
+OPEN_TELEMETRY_LOG_ENDPOINT=https://logfire-us.pydantic.dev/v1/logs
+OPEN_TELEMETRY_AUTHORIZATION_TOKEN=your_logfire_token
+```
+
+**Datadog:**
+```bash
+OPEN_TELEMETRY_TRACE_ENDPOINT=https://trace-intake.datadoghq.com/api/v2/traces
+OPEN_TELEMETRY_LOG_ENDPOINT=https://http-intake.logs.datadoghq.com/api/v2/logs
+OPEN_TELEMETRY_AUTHORIZATION_TOKEN=DD-API-KEY-here
+```
+
+The system gracefully falls back to console-only logging if OpenTelemetry endpoints are not configured, so observability is completely optional (but not really, you should setup a logging platform).
 
 ## Reporting
 

@@ -74,13 +74,13 @@ def _ensure_clr_available():
 
         return DataTable, DBNull, SqlBulkCopy, SqlConnection, SqlConnectionStringBuilder
     except ImportError as e:
-        logger.error(f"Failed to import .NET components: {e}")
+        logger.exception(f"Failed to import .NET components: {e}")
         raise ImportError(
             f".NET Framework is required for SQL Server bulk operations. "
             f"Error: {e}. Ensure .NET Framework is available."
         ) from e
     except (SystemError, RuntimeError) as e:
-        logger.error(f"Failed to initialize .NET runtime: {e}")
+        logger.exception(f"Failed to initialize .NET runtime: {e}")
         raise
 
 
@@ -156,7 +156,7 @@ def _convert_sqlalchemy_to_dotnet_connection_string(
         ip_address = socket.gethostbyname(host)
         server_address = f"{ip_address},{port}"
     except (socket.gaierror, OSError) as e:
-        logger.error(f"Failed to resolve hostname '{host}': {e}")
+        logger.exception(f"Failed to resolve hostname '{host}': {e}")
         server_address = f"{host},{port}"
 
     builder = SqlConnectionStringBuilder()
@@ -204,7 +204,7 @@ def bulk_insert(
             f"[log_id={log.id}] SqlBulkCopy inserted {len(data_list)} records into {table_name}"
         )
     except Exception as e:
-        logger.error(
+        logger.exception(
             f"[log_id={log.id}] Failed to SqlBulkCopy insert into {table_name}: {e}"
         )
         raise

@@ -6,8 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, Iterator, List
 
-import logfire
 import pendulum
+from opentelemetry import trace
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import MetaData, Table, insert, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
@@ -135,7 +135,7 @@ class FileProcessor:
                 f"[log_id={log.id}] Copied {file_path.name} to archive: {archive_file_path}"
             )
         except Exception as e:
-            logger.error(
+            logger.exception(
                 f"[log_id={log.id}] Failed to copy {file_path.name} to archive: {e}"
             )
             raise
@@ -384,7 +384,7 @@ class FileProcessor:
                 )
             except Exception as e:
                 session.rollback()
-                logger.error(
+                logger.exception(
                     f"[log_id={log.id}] Failed to insert batch into {table_name}: {e}"
                 )
                 raise
@@ -553,7 +553,7 @@ class FileProcessor:
 
             except Exception as e:
                 session.rollback()
-                logger.error(
+                logger.exception(
                     f"[log_id={log.id}] Failed to merge {stage_table_name} to {target_table_name}: {e}"
                 )
                 raise
@@ -605,7 +605,7 @@ class FileProcessor:
                 )
             except Exception as e:
                 session.rollback()
-                logger.error(
+                logger.exception(
                     f"[log_id={log.id}] Failed to delete DLQ records for file: {source_filename}: {e}"
                 )
                 raise
@@ -670,7 +670,7 @@ class FileProcessor:
                 )
             except Exception as e:
                 session.rollback()
-                logger.error(
+                logger.exception(
                     f"[log_id={log.id}] Failed to insert records into DLQ: {e}"
                 )
                 raise
@@ -679,13 +679,13 @@ class FileProcessor:
         results: list[dict] = []
         duplicates_path = config.DUPLICATE_FILES_PATH
         log = None
+        tracer = trace.get_tracer(__name__)
 
         for file_path_str in batch:
             file_path = Path(file_path_str)
 
-            with logfire.span(
+            with tracer.start_as_current_span(
                 f"FILE: {file_path.name}",
-                file_name=file_path.name,
             ):
                 try:
                     reader = self._get_reader(file_path)
@@ -740,7 +740,7 @@ class FileProcessor:
                         log.model_dump(include={"id", "source_filename", "success"})
                     )
                 except tuple(FILE_ERROR_EXCEPTIONS) as e:
-                    logger.error(f"[log_id={log.id}] {e}")
+                    logger.exception(f"[log_id={log.id}] {e}")
 
                     if reader.source.notification_emails:
                         send_failure_notification(
@@ -767,7 +767,7 @@ class FileProcessor:
                     )
                 except Exception as e:
                     log_id = log.id if log else "N/A"
-                    logger.error(f"[log_id={log_id}] {e}")
+                    logger.exception(f"[log_id={log_id}] {e}")
 
                     if log:
                         log.ended_at = pendulum.now("UTC")

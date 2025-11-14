@@ -146,7 +146,7 @@ def send_failure_notification(
     try:
         _send_email()
     except Exception as e:
-        logger.error(
+        logger.exception(
             f"Failed to send notification email for {file_name} after retries: {e}"
         )
 
@@ -198,4 +198,4 @@ def send_slack_notification(
     try:
         _send_slack()
     except Exception as e:
-        logger.error(f"Failed to send Slack notification after retries: {e}")
+        logger.exception(f"Failed to send Slack notification after retries: {e}")

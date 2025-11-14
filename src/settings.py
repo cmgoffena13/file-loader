@@ -60,8 +60,10 @@ class GlobalConfig(BaseConfig):
             return v
         return Path(v) if v else v
 
-    LOGFIRE_TOKEN: Optional[str] = None
-    LOGFIRE_CONSOLE: bool = False
+    OTEL_PYTHON_LOG_CORRELATION: Optional[bool] = None
+    OPEN_TELEMETRY_LOG_ENDPOINT: Optional[str] = None
+    OPEN_TELEMETRY_TRACE_ENDPOINT: Optional[str] = None
+    OPEN_TELEMETRY_AUTHORIZATION_TOKEN: Optional[str] = None
 
     SQL_SERVER_SQLBULKCOPY_FLAG: bool = False
 
@@ -71,6 +73,7 @@ class DevConfig(GlobalConfig):
     ARCHIVE_PATH: Path = Path("src/tests/archive_data")
     DUPLICATE_FILES_PATH: Path = Path("src/tests/duplicate_files_data")
     LOG_LEVEL: str = "DEBUG"
+    OTEL_PYTHON_LOG_CORRELATION: bool = False
 
     model_config = SettingsConfigDict(env_prefix="DEV_")
 
@@ -81,17 +84,23 @@ class TestConfig(GlobalConfig):
     ARCHIVE_PATH: Path = Path("src/tests/archive_data")
     DUPLICATE_FILES_PATH: Path = Path("src/tests/duplicate_files_data")
     BATCH_SIZE: int = 100
+    OTEL_PYTHON_LOG_CORRELATION: bool = False
 
     model_config = SettingsConfigDict(env_prefix="TEST_")
 
 
 class ProdConfig(GlobalConfig):
     LOG_LEVEL: Optional[str] = "WARNING"
+    OTEL_PYTHON_LOG_CORRELATION: bool = True
+
     model_config = SettingsConfigDict(env_prefix="PROD_")
 
 
 @lru_cache()
 def get_config(env_state: str):
+    if not env_state:
+        raise ValueError("ENV_STATE is not set. Possible values are: DEV, TEST, PROD")
+    env_state = env_state.lower()
     configs = {"dev": DevConfig, "prod": ProdConfig, "test": TestConfig}
     return configs[env_state]()
 

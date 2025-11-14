@@ -1,5 +1,5 @@
 from src.exceptions import FILE_ERROR_EXCEPTIONS
-from src.logging_conf import configure_logging
+from src.logging_conf import setup_logging
 from src.notifications import send_slack_notification
 from src.process import process_directory
 from src.retry import get_error_location
@@ -66,5 +66,5 @@ def main():
 
 
 if __name__ == "__main__":
-    configure_logging()
+    setup_logging()
     main()
