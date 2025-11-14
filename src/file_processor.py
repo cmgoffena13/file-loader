@@ -829,7 +829,7 @@ class FileProcessor:
         failed = len(all_results) - successful
 
         logger.info(
-            f"Processed {len(all_results)} files: {successful} successful, {failed} failed"
+            f"Run Completed: Processed {len(all_results)} files: {successful} successful, {failed} failed"
         )
         return all_results
 
