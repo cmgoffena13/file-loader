@@ -9,7 +9,7 @@ from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-from src.settings import DevConfig, ProdConfig, config
+from src.settings import ProdConfig, config
 
 
 def setup_logging():
@@ -21,7 +21,7 @@ def setup_logging():
     logger_provider = LoggerProvider()
     set_logger_provider(logger_provider)
 
-    if isinstance(config, (DevConfig, ProdConfig)):
+    if isinstance(config, ProdConfig):
         # Setup OpenTelemetry tracing exporter
         trace_exporter = OTLPSpanExporter(
             endpoint=config.OPEN_TELEMETRY_TRACE_ENDPOINT,
