@@ -1,5 +1,7 @@
 # FileLoader
 
+**IMPORTANT:** I refactored this repo from scratch, see the new repo - [Better FileLoader](https://github.com/cmgoffena13/etl-file-loader) 
+
 An ETL framework for processing CSV, Excel, and JSON files with memory efficient processing, validation, staging, auditing, and database loading.
 
 ## Table of Contents

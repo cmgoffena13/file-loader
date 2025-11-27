@@ -368,7 +368,7 @@ class FileProcessor:
             bulk_insert(config.DATABASE_URL, table_name, batch, log)
             return
 
-        columns = list[str](batch[0].keys())
+        columns = list(batch[0].keys())
 
         placeholders = ", ".join([f":{col}" for col in columns])
         insert_sql = (
